@@ -2,7 +2,7 @@
 
 # Arch Linux Installation Script for VirtualBox (BIOS/Legacy Boot)
 # Run this script after booting from the Arch ISO
-# https://shorturl.at/pYCA2
+# https://tinyurl.com/aiosarchinstall
 
 #=== CONFIGURATION - MODIFY THESE VALUES ===
 HOSTNAME="archvm"
