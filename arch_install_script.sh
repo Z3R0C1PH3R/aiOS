@@ -105,13 +105,12 @@ pacman -S --noconfirm grub efibootmgr networkmanager network-manager-applet \
 # Install VirtualBox guest additions
 pacman -S --noconfirm virtualbox-guest-utils
 
-# Install desktop environment (XFCE - lightweight)
-pacman -S --noconfirm xorg xfce4 xfce4-goodies lightdm lightdm-gtk-greeter \
-    firefox file-roller
+# Install desktop environment (GNOME)
+pacman -S --noconfirm xorg gnome gnome-extra gdm firefox
 
 # Enable services
 systemctl enable NetworkManager
-systemctl enable lightdm
+systemctl enable gdm
 systemctl enable vboxservice
 
 # Set root password
@@ -147,7 +146,7 @@ echo
 echo "=== Installation Summary ==="
 echo "Hostname: $HOSTNAME"
 echo "User: $USERNAME"
-echo "Desktop: XFCE4"
+echo "Desktop: GNOME"
 echo "Bootloader: GRUB (BIOS/Legacy)"
 echo
 echo "Installation completed successfully!"
