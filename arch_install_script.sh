@@ -157,6 +157,7 @@ echo "After reboot:"
 echo "1. Remove the ISO from VirtualBox"
 echo "2. Log in with your username and password"
 echo "3. The desktop environment should start automatically"
+echo "4. Make sure 3D acceleration in display settings is enabled"
 echo
 echo "VirtualBox Guest Additions are installed for:"
 echo "- Shared clipboard"
