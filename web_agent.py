@@ -440,9 +440,171 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
             # Recursive iteration
             self._process_with_iteration(next_response, add_event)
 
-    def _process_with_iteration_streaming(self, ai_response: str, add_event):
-        """Same as _process_with_iteration but optimized for streaming"""
-        self._process_with_iteration(ai_response, add_event)
+    def _process_with_iteration_streaming(self, ai_response: str):
+        """Generator that processes AI response and yields SSE events"""
+        def add_event(event_type: str, data: dict):
+            """Helper to format and yield SSE events"""
+            event = {
+                "type": event_type,
+                "timestamp": datetime.now().isoformat(),
+                "data": data
+            }
+            return f"data: {json.dumps(event)}\n\n"
+        
+        # Process the response with iteration
+        yield from self._process_iteration_generator(ai_response, add_event)
+    
+    def _process_iteration_generator(self, ai_response: str, add_event):
+        """Generator version of _process_with_iteration"""
+        tags = self.extract_commands_and_tags(ai_response)
+        
+        # Execute all operations
+        commands_needing_feedback = []
+        has_errors = False
+        
+        for pos, tag_type, data in tags["ordered_tags"]:
+            if tag_type == 'command':
+                cmd = data
+                yield add_event("command_start", {"command": cmd})
+                
+                result = self.execute_command(cmd)
+                
+                yield add_event("command_result", {
+                    "command": cmd,
+                    "success": result["success"],
+                    "output": result["output"],
+                    "error": result["error"],
+                    "return_code": result["return_code"]
+                })
+                
+                # Collect output for AI feedback
+                formatted_output = self._format_command_result(cmd, result)
+                commands_needing_feedback.append(formatted_output)
+                
+                if not result["success"]:
+                    has_errors = True
+            
+            elif tag_type == 'command_background':
+                cmd = data
+                yield add_event("background_command_start", {"command": cmd})
+                
+                # Start background process
+                try:
+                    process = subprocess.Popen(
+                        cmd,
+                        shell=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    yield add_event("background_command_started", {
+                        "command": cmd,
+                        "pid": process.pid,
+                        "message": f"Background process started with PID {process.pid}"
+                    })
+                    commands_needing_feedback.append(
+                        f"Background Command: {cmd}\nStatus: Started successfully with PID {process.pid}"
+                    )
+                except Exception as e:
+                    yield add_event("background_command_error", {
+                        "command": cmd,
+                        "error": str(e)
+                    })
+                    commands_needing_feedback.append(
+                        f"Background Command: {cmd}\nError: {str(e)}"
+                    )
+                    has_errors = True
+            
+            elif tag_type == 'writefile':
+                filename, content = data
+                yield add_event("file_write_start", {"filename": filename})
+                
+                try:
+                    # Clean content
+                    cleaned_content = content.strip()
+                    if cleaned_content.startswith('```python'):
+                        cleaned_content = cleaned_content[9:]
+                    if cleaned_content.startswith('```'):
+                        cleaned_content = cleaned_content[3:]
+                    if cleaned_content.endswith('```'):
+                        cleaned_content = cleaned_content[:-3]
+                    cleaned_content = cleaned_content.strip()
+                    
+                    # Check if content seems truncated
+                    is_truncated = (
+                        cleaned_content.endswith('...') or
+                        (filename.endswith('.html') and not cleaned_content.endswith('</html>')) or
+                        (filename.endswith('.py') and cleaned_content.count('def ') != cleaned_content.count('    return'))
+                    )
+                    
+                    # Create directory if needed
+                    dir_path = os.path.dirname(filename)
+                    if dir_path:
+                        os.makedirs(dir_path, exist_ok=True)
+                    
+                    with open(filename, 'w') as f:
+                        f.write(cleaned_content)
+                    
+                    if is_truncated:
+                        yield add_event("file_write_warning", {
+                            "filename": filename,
+                            "preview": cleaned_content[:200],
+                            "warning": "File content may be truncated"
+                        })
+                        commands_needing_feedback.append(
+                            f"File Written: {filename}\nStatus: SUCCESS but content appears TRUNCATED\n"
+                            f"⚠️ The file content may be incomplete. Consider writing smaller files or splitting content."
+                        )
+                        has_errors = True
+                    else:
+                        yield add_event("file_write_success", {
+                            "filename": filename,
+                            "preview": cleaned_content[:200]
+                        })
+                        commands_needing_feedback.append(
+                            f"File Written: {filename}\nStatus: Success\nSize: {len(cleaned_content)} bytes"
+                        )
+                except Exception as e:
+                    yield add_event("file_write_error", {
+                        "filename": filename,
+                        "error": str(e)
+                    })
+                    commands_needing_feedback.append(
+                        f"File Write: {filename}\nError: {str(e)}"
+                    )
+                    has_errors = True
+        
+        # Handle completion
+        if tags["is_done"]:
+            for msg in tags["done_messages"]:
+                if msg:
+                    yield add_event("task_complete", {"message": msg})
+            return
+        
+        # Continue iteration if needed
+        if commands_needing_feedback:
+            # Emphasize errors if any occurred
+            if has_errors:
+                feedback_prompt = (
+                    "⚠️ ATTENTION: Some commands/operations FAILED. You MUST fix these errors before proceeding.\n\n"
+                    "Results:\n\n" +
+                    "\n\n---\n\n".join(commands_needing_feedback) +
+                    "\n\n🔴 CRITICAL: Analyze the errors above and fix them. Do not ignore failed commands!\n"
+                    "Use <COMMAND> to retry or fix issues, or use <DONE>message</DONE> if the task cannot be completed."
+                )
+            else:
+                feedback_prompt = (
+                    "All operations completed successfully. Results:\n\n" +
+                    "\n\n---\n\n".join(commands_needing_feedback) +
+                    "\n\nPlease continue with your task or use <DONE>message</DONE> when finished."
+                )
+            
+            yield add_event("ai_thinking", {})
+            next_response = self.query_llm(feedback_prompt)
+            yield add_event("ai_response", {"message": next_response})
+            
+            # Recursive iteration
+            yield from self._process_iteration_generator(next_response, add_event)
 
     def _format_command_result(self, command: str, result: dict) -> str:
         """Format command result for AI feedback"""
@@ -510,26 +672,17 @@ def chat():
     
     def generate_events():
         """Generator function for SSE"""
-        events = []
-        
-        def add_event(event_type: str, data: dict):
-            event = {
-                "type": event_type,
-                "timestamp": datetime.now().isoformat(),
-                "data": data
-            }
-            events.append(event)
-            # Send event immediately
-            yield f"data: {json.dumps(event)}\n\n"
-        
         try:
-            # Query AI
-            add_event("ai_thinking", {})
-            ai_response = agent.query_llm(user_message)
-            add_event("ai_response", {"message": ai_response})
+            # AI thinking
+            yield f"data: {json.dumps({'type': 'ai_thinking', 'timestamp': datetime.now().isoformat(), 'data': {}})}\n\n"
             
-            # Process response iteratively
-            agent._process_with_iteration_streaming(ai_response, add_event)
+            # Query AI
+            ai_response = agent.query_llm(user_message)
+            yield f"data: {json.dumps({'type': 'ai_response', 'timestamp': datetime.now().isoformat(), 'data': {'message': ai_response}})}\n\n"
+            
+            # Process response iteratively - yield from the generator
+            for event in agent._process_with_iteration_streaming(ai_response):
+                yield event
             
             # Send end marker
             yield f"data: {json.dumps({'type': 'end'})}\n\n"
