@@ -124,6 +124,9 @@ RESPONSE GUIDELINES:
 - ALWAYS include --noconfirm (or equivalent) for any interactive command
 - NEVER use sudo (you're already root)
 - Always end with <DONE> when task is complete
+- You are running as a python script, try not to kill yourself.
+
+Do only what you are told to do and whatever else is necessary to complete the task. Dont do anything extra. You may ask user for clarification if needed. You may suggest improvements to the user but only implement them if explicitly instructed to do so.
 """
 
     def _get_system_info(self) -> str:

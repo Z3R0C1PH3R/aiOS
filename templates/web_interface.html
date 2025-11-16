@@ -335,6 +335,10 @@
             font-size: 15px;
             font-family: inherit;
             transition: all 0.3s ease;
+            resize: vertical;
+            min-height: 52px;
+            max-height: 200px;
+            line-height: 1.5;
         }
 
         #userInput:focus {
@@ -506,12 +510,12 @@
 
         <div class="input-container">
             <div class="input-wrapper">
-                <input 
-                    type="text" 
+                <textarea 
                     id="userInput" 
-                    placeholder="Ask me to do something (e.g., 'install docker', 'create a python script', 'check system status')..."
+                    placeholder="Ask me to do something (e.g., 'install docker', 'create a python script', 'check system status')...&#10;&#10;Tip: Press Shift+Enter for new line, Enter to send"
                     autocomplete="off"
-                >
+                    rows="1"
+                ></textarea>
                 <div class="controls">
                     <button id="sendBtn">
                         <span>Send</span>
@@ -863,6 +867,7 @@
             
             addMessage('user', message);
             userInput.value = '';
+            userInput.style.height = 'auto'; // Reset height after sending
 
             try {
                 // Use EventSource for Server-Sent Events
@@ -965,6 +970,13 @@
         sendBtn.addEventListener('click', sendMessage);
         stopBtn.addEventListener('click', stopProcessing);
         clearBtn.addEventListener('click', clearConversation);
+        
+        // Auto-resize textarea
+        userInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+        });
+        
         userInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
