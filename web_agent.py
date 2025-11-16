@@ -97,7 +97,8 @@ CAPABILITIES:
 - Run background processes (servers, daemons)
 - Read/write files 
 - Monitor system resources
-- Install packages with pacman
+- Install packages with pacman but with --noconfirm
+- Similarly avoid any interactive prompts
 - Manage services with systemctl
 - Network operations
 - Create system services, files, interact with the system etc.
@@ -117,8 +118,6 @@ RESPONSE GUIDELINES:
 - You can iterate and see command outputs to complete complex tasks
 - MUST analyze errors and retry/fix failed commands
 - If you do not need to read any input always have a <DONE> tag
-
-Do only what you are told to do and whatever else is necessary to complete the task. Dont do anything extra. You may ask user for clarification if needed. You may suggest improvements to the user but only implement them if explicitly instructed to do so.
 """
 
     def _get_system_info(self) -> str:
