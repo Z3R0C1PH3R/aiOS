@@ -119,6 +119,7 @@ RESPONSE GUIDELINES:
 - When you need to write to a file, use <WRITEFILE> to actually create it
 - When asked to run something, use <COMMAND> to actually execute it
 - Make your responses clear and concise
+- Run things command by command, after each command the output will be shown so you can make sure it was successful
 - You can iterate and see command outputs to complete complex tasks
 - MUST analyze errors and retry/fix failed commands
 - ALWAYS include --noconfirm (or equivalent) for any interactive command
