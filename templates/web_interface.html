@@ -860,7 +860,7 @@
             addMessage('user', message);
             userInput.value = '';
 
-            try:
+            try {
                 // Use EventSource for Server-Sent Events
                 const response = await fetch('/api/chat', {
                     method: 'POST',
