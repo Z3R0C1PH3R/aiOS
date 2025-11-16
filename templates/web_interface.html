@@ -369,6 +369,18 @@
             cursor: not-allowed;
         }
 
+        #stopBtn {
+            background: #f59e0b;
+            color: white;
+            display: none;
+        }
+
+        #stopBtn:hover {
+            background: #d97706;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+        }
+
         #clearBtn {
             background: #ef4444;
             color: white;
@@ -503,6 +515,10 @@
                         <span>Send</span>
                         <span>↗</span>
                     </button>
+                    <button id="stopBtn" title="Stop AI processing">
+                        <span>⏹️</span>
+                        <span>Stop</span>
+                    </button>
                     <button id="clearBtn" title="Clear conversation history">
                         <span>🗑️</span>
                     </button>
@@ -519,6 +535,7 @@
         const chatContainer = document.getElementById('chatContainer');
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
+        const stopBtn = document.getElementById('stopBtn');
         const clearBtn = document.getElementById('clearBtn');
         const scrollIndicator = document.getElementById('scrollIndicator');
 
@@ -807,6 +824,18 @@
                     scrollToBottom();
                     break;
                 
+                case 'task_stopped':
+                    const stoppedDiv = document.createElement('div');
+                    stoppedDiv.className = 'task-complete';
+                    stoppedDiv.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+                    stoppedDiv.innerHTML = `
+                        <span style="font-size: 24px;">⏹️</span>
+                        <span>${escapeHtml(event.data.message || 'Processing stopped by user')}</span>
+                    `;
+                    chatContainer.appendChild(stoppedDiv);
+                    scrollToBottom();
+                    break;
+                
                 default:
                     console.log('Unknown event type:', event.type);
             }
@@ -825,11 +854,13 @@
 
             isProcessing = true;
             sendBtn.disabled = true;
+            sendBtn.style.display = 'none';
+            stopBtn.style.display = 'flex';
             
             addMessage('user', message);
             userInput.value = '';
 
-            try {
+            try:
                 // Use EventSource for Server-Sent Events
                 const response = await fetch('/api/chat', {
                     method: 'POST',
@@ -897,7 +928,19 @@
             } finally {
                 isProcessing = false;
                 sendBtn.disabled = false;
+                sendBtn.style.display = 'flex';
+                stopBtn.style.display = 'none';
                 userInput.focus();
+            }
+        }
+
+        // Stop AI processing
+        async function stopProcessing() {
+            try {
+                await fetch('/api/stop', { method: 'POST' });
+                addMessage('ai', 'Stop request sent. AI will halt after current operation...');
+            } catch (error) {
+                console.error('Error stopping:', error);
             }
         }
 
@@ -916,6 +959,7 @@
 
         // Event listeners
         sendBtn.addEventListener('click', sendMessage);
+        stopBtn.addEventListener('click', stopProcessing);
         clearBtn.addEventListener('click', clearConversation);
         userInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {

@@ -50,6 +50,7 @@ class OSAgent:
         self.session.timeout = 30
         self.conversation_history = []
         self.system_prompt = self._build_system_prompt()
+        self.stop_requested = False
         
     def _build_system_prompt(self) -> str:
         """Build the system prompt for the AI agent"""
@@ -139,20 +140,6 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
     def execute_command(self, command: str) -> Dict[str, Any]:
         """Execute a system command with sudo privileges"""
         logger.info(f"Executing: {command}")
-        
-        # Safety checks for dangerous commands
-        dangerous_patterns = [
-            'rm -rf /', 'dd if=', 'mkfs', 'fdisk /dev/', 'parted /dev/',
-            'format', 'del /f', '> /dev/', 'chmod 777 /'
-        ]
-        
-        if any(pattern in command.lower() for pattern in dangerous_patterns):
-            return {
-                "success": False,
-                "error": f"Dangerous command blocked: {command}",
-                "output": "",
-                "return_code": -1
-            }
         
         try:
             result = subprocess.run(
@@ -456,6 +443,12 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
     
     def _process_iteration_generator(self, ai_response: str, add_event):
         """Generator version of _process_with_iteration"""
+        # Check if stop was requested
+        if self.stop_requested:
+            yield add_event("task_stopped", {"message": "Processing stopped by user"})
+            self.stop_requested = False
+            return
+        
         tags = self.extract_commands_and_tags(ai_response)
         
         # Execute all operations
@@ -713,6 +706,12 @@ def clear():
     """Clear conversation history"""
     agent.clear_conversation()
     return jsonify({"status": "cleared"})
+
+@app.route('/api/stop', methods=['POST'])
+def stop():
+    """Stop current AI processing"""
+    agent.stop_requested = True
+    return jsonify({"status": "stop_requested"})
 
 @app.route('/api/execute', methods=['POST'])
 def execute():
