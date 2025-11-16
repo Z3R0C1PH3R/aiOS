@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>aiOS - Arch AI Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: rgba(0, 0, 0, 0.3);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header .logo {
+            font-size: 32px;
+        }
+
+        .system-status {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px 16px;
+            border-radius: 20px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 1400px;
+            width: 100%;
+            margin: 20px auto;
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+            background: #f8fafc;
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .message-icon {
+            font-size: 20px;
+        }
+
+        .message-content {
+            padding: 15px 20px;
+            border-radius: 12px;
+            line-height: 1.6;
+            font-size: 15px;
+        }
+
+        .user-message .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-left: 30px;
+        }
+
+        .ai-message .message-content {
+            background: white;
+            border: 2px solid #e2e8f0;
+            margin-left: 30px;
+        }
+
+        .system-message {
+            background: #f1f5f9;
+            border-left: 4px solid #64748b;
+            padding: 12px 16px;
+            margin: 10px 0;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .command-execution {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .command-header {
+            color: #60a5fa;
+            font-weight: bold;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .command-output {
+            color: #cbd5e1;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 8px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+        }
+
+        .command-error {
+            color: #fca5a5;
+        }
+
+        .command-success {
+            color: #86efac;
+        }
+
+        .file-write {
+            background: #064e3b;
+            color: #d1fae5;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .file-header {
+            color: #6ee7b7;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .task-complete {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin: 10px 0;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .thinking {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #64748b;
+            font-style: italic;
+            padding: 10px;
+        }
+
+        .thinking-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .thinking-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #64748b;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .thinking-dot:nth-child(1) { animation-delay: -0.32s; }
+        .thinking-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        .input-container {
+            padding: 20px 30px;
+            background: white;
+            border-top: 2px solid #e2e8f0;
+            display: flex;
+            gap: 15px;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            display: flex;
+            gap: 10px;
+        }
+
+        #userInput {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 15px;
+            font-family: inherit;
+            transition: all 0.3s ease;
+        }
+
+        #userInput:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #sendBtn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        #sendBtn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        #sendBtn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        #clearBtn {
+            background: #ef4444;
+            color: white;
+        }
+
+        #clearBtn:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+        }
+
+        .loading {
+            display: none;
+            color: #64748b;
+            font-style: italic;
+            padding: 10px 20px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .scroll-indicator {
+            position: fixed;
+            bottom: 100px;
+            right: 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .scroll-indicator.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .scroll-indicator:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        /* Scrollbar styling */
+        .chat-container::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 5px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .command-output::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .command-output::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .command-output::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>
+            <span class="logo">🤖</span>
+            aiOS - Arch AI Agent
+        </h1>
+        <div class="system-status" id="systemStatus">
+            <div class="status-item">
+                <span class="status-dot"></span>
+                <span id="cpuStatus">CPU: --</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot"></span>
+                <span id="memStatus">MEM: --</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot"></span>
+                <span id="diskStatus">DISK: --</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="chat-container" id="chatContainer">
+            <div class="message ai-message">
+                <div class="message-header">
+                    <span class="message-icon">🤖</span>
+                    <span>ArchAgent</span>
+                </div>
+                <div class="message-content">
+                    Hello! I'm your AI assistant with full system access to your Arch Linux VM. 
+                    I can execute commands, install packages, create files, and manage your system. 
+                    What would you like me to help you with today?
+                </div>
+            </div>
+        </div>
+
+        <div class="input-container">
+            <div class="input-wrapper">
+                <input 
+                    type="text" 
+                    id="userInput" 
+                    placeholder="Ask me to do something (e.g., 'install docker', 'create a python script', 'check system status')..."
+                    autocomplete="off"
+                >
+                <div class="controls">
+                    <button id="sendBtn">
+                        <span>Send</span>
+                        <span>↗</span>
+                    </button>
+                    <button id="clearBtn" title="Clear conversation history">
+                        <span>🗑️</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="scroll-indicator" id="scrollIndicator">
+        ↓
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const scrollIndicator = document.getElementById('scrollIndicator');
+
+        let isProcessing = false;
+
+        // Auto-scroll management
+        function scrollToBottom() {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function checkScroll() {
+            const isScrolledToBottom = chatContainer.scrollHeight - chatContainer.clientHeight <= chatContainer.scrollTop + 100;
+            scrollIndicator.classList.toggle('visible', !isScrolledToBottom);
+        }
+
+        chatContainer.addEventListener('scroll', checkScroll);
+        scrollIndicator.addEventListener('click', scrollToBottom);
+
+        // Update system status
+        async function updateSystemStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                document.getElementById('cpuStatus').textContent = `CPU: ${data.cpu_percent.toFixed(1)}%`;
+                document.getElementById('memStatus').textContent = `MEM: ${data.memory_percent.toFixed(1)}%`;
+                document.getElementById('diskStatus').textContent = `DISK: ${data.disk_percent.toFixed(1)}%`;
+            } catch (error) {
+                console.error('Error updating status:', error);
+            }
+        }
+
+        // Update status every 5 seconds
+        updateSystemStatus();
+        setInterval(updateSystemStatus, 5000);
+
+        // Add message to chat
+        function addMessage(type, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}-message`;
+            
+            let icon = type === 'user' ? '👤' : '🤖';
+            let name = type === 'user' ? 'You' : 'ArchAgent';
+            
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <span class="message-icon">${icon}</span>
+                    <span>${name}</span>
+                </div>
+                <div class="message-content">${content}</div>
+            `;
+            
+            chatContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // Add thinking indicator
+        function addThinking() {
+            const thinkingDiv = document.createElement('div');
+            thinkingDiv.className = 'thinking';
+            thinkingDiv.id = 'thinking';
+            thinkingDiv.innerHTML = `
+                <span>🤔 AI is thinking</span>
+                <div class="thinking-dots">
+                    <div class="thinking-dot"></div>
+                    <div class="thinking-dot"></div>
+                    <div class="thinking-dot"></div>
+                </div>
+            `;
+            chatContainer.appendChild(thinkingDiv);
+            scrollToBottom();
+        }
+
+        function removeThinking() {
+            const thinking = document.getElementById('thinking');
+            if (thinking) thinking.remove();
+        }
+
+        // Process events from backend
+        function processEvents(events) {
+            events.forEach(event => {
+                switch(event.type) {
+                    case 'ai_thinking':
+                        addThinking();
+                        break;
+                    
+                    case 'ai_response':
+                        removeThinking();
+                        addMessage('ai', event.data.message.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+                        break;
+                    
+                    case 'command_start':
+                        const cmdStartDiv = document.createElement('div');
+                        cmdStartDiv.className = 'command-execution';
+                        cmdStartDiv.innerHTML = `
+                            <div class="command-header">
+                                🔧 Executing Command
+                            </div>
+                            <div class="command-output">${escapeHtml(event.data.command)}</div>
+                        `;
+                        chatContainer.appendChild(cmdStartDiv);
+                        scrollToBottom();
+                        break;
+                    
+                    case 'command_result':
+                        const cmdDiv = document.createElement('div');
+                        cmdDiv.className = 'command-execution';
+                        const statusClass = event.data.success ? 'command-success' : 'command-error';
+                        const statusIcon = event.data.success ? '✅' : '❌';
+                        const output = event.data.success ? event.data.output : event.data.error;
+                        
+                        cmdDiv.innerHTML = `
+                            <div class="command-header ${statusClass}">
+                                ${statusIcon} Command ${event.data.success ? 'Completed' : 'Failed'}
+                            </div>
+                            <div class="command-output">${escapeHtml(event.data.command)}</div>
+                            ${output ? `<div class="command-output ${statusClass}">${escapeHtml(output)}</div>` : ''}
+                            <div style="margin-top: 8px; color: #94a3b8;">Return code: ${event.data.return_code}</div>
+                        `;
+                        chatContainer.appendChild(cmdDiv);
+                        scrollToBottom();
+                        break;
+                    
+                    case 'file_write_start':
+                        const fileStartDiv = document.createElement('div');
+                        fileStartDiv.className = 'file-write';
+                        fileStartDiv.innerHTML = `
+                            <div class="file-header">📝 Writing file: ${escapeHtml(event.data.filename)}</div>
+                        `;
+                        chatContainer.appendChild(fileStartDiv);
+                        scrollToBottom();
+                        break;
+                    
+                    case 'file_write_success':
+                        const fileDiv = document.createElement('div');
+                        fileDiv.className = 'file-write';
+                        fileDiv.innerHTML = `
+                            <div class="file-header">✅ File written: ${escapeHtml(event.data.filename)}</div>
+                            <div class="command-output">${escapeHtml(event.data.preview)}${event.data.preview.length >= 200 ? '...' : ''}</div>
+                        `;
+                        chatContainer.appendChild(fileDiv);
+                        scrollToBottom();
+                        break;
+                    
+                    case 'file_write_error':
+                        const fileErrDiv = document.createElement('div');
+                        fileErrDiv.className = 'file-write';
+                        fileErrDiv.innerHTML = `
+                            <div class="file-header">❌ Error writing file: ${escapeHtml(event.data.filename)}</div>
+                            <div class="command-output command-error">${escapeHtml(event.data.error)}</div>
+                        `;
+                        chatContainer.appendChild(fileErrDiv);
+                        scrollToBottom();
+                        break;
+                    
+                    case 'task_complete':
+                        const completeDiv = document.createElement('div');
+                        completeDiv.className = 'task-complete';
+                        completeDiv.innerHTML = `
+                            <span style="font-size: 24px;">✅</span>
+                            <span>${escapeHtml(event.data.message || 'Task completed successfully!')}</span>
+                        `;
+                        chatContainer.appendChild(completeDiv);
+                        scrollToBottom();
+                        break;
+                }
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Send message
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message || isProcessing) return;
+
+            isProcessing = true;
+            sendBtn.disabled = true;
+            
+            addMessage('user', message);
+            userInput.value = '';
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message: message })
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    addMessage('ai', `Error: ${data.error}`);
+                } else {
+                    processEvents(data.events);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage('ai', `Connection error: ${error.message}`);
+            } finally {
+                isProcessing = false;
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        // Clear conversation
+        async function clearConversation() {
+            if (!confirm('Clear conversation history?')) return;
+            
+            try {
+                await fetch('/api/clear', { method: 'POST' });
+                chatContainer.innerHTML = '';
+                addMessage('ai', 'Conversation history cleared. How can I help you?');
+            } catch (error) {
+                console.error('Error clearing:', error);
+            }
+        }
+
+        // Event listeners
+        sendBtn.addEventListener('click', sendMessage);
+        clearBtn.addEventListener('click', clearConversation);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Focus input on load
+        userInput.focus();
+    </script>
+</body>
+</html>
