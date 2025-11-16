@@ -570,11 +570,54 @@
                             <div class="command-header ${statusClass}">
                                 ${statusIcon} Command ${event.data.success ? 'Completed' : 'Failed'}
                             </div>
-                            <div class="command-output">${escapeHtml(event.data.command)}</div>
+                            <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
                             ${output ? `<div class="command-output ${statusClass}">${escapeHtml(output)}</div>` : ''}
-                            <div style="margin-top: 8px; color: #94a3b8;">Return code: ${event.data.return_code}</div>
+                            <div style="margin-top: 8px; color: #94a3b8;">Exit code: ${event.data.return_code}</div>
                         `;
                         chatContainer.appendChild(cmdDiv);
+                        scrollToBottom();
+                        break;
+                    
+                    case 'background_command_start':
+                        const bgStartDiv = document.createElement('div');
+                        bgStartDiv.className = 'command-execution';
+                        bgStartDiv.innerHTML = `
+                            <div class="command-header" style="color: #fbbf24;">
+                                🔄 Starting Background Process
+                            </div>
+                            <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
+                        `;
+                        chatContainer.appendChild(bgStartDiv);
+                        scrollToBottom();
+                        break;
+                    
+                    case 'background_command_started':
+                        const bgDiv = document.createElement('div');
+                        bgDiv.className = 'command-execution';
+                        bgDiv.innerHTML = `
+                            <div class="command-header command-success">
+                                ✅ Background Process Started
+                            </div>
+                            <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
+                            <div class="command-output command-success">
+                                ${escapeHtml(event.data.message)}
+                            </div>
+                        `;
+                        chatContainer.appendChild(bgDiv);
+                        scrollToBottom();
+                        break;
+                    
+                    case 'background_command_error':
+                        const bgErrDiv = document.createElement('div');
+                        bgErrDiv.className = 'command-execution';
+                        bgErrDiv.innerHTML = `
+                            <div class="command-header command-error">
+                                ❌ Background Process Failed
+                            </div>
+                            <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
+                            <div class="command-output command-error">${escapeHtml(event.data.error)}</div>
+                        `;
+                        chatContainer.appendChild(bgErrDiv);
                         scrollToBottom();
                         break;
                     

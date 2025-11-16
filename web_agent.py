@@ -66,22 +66,34 @@ COMMAND EXECUTION TAGS:
 1. <COMMAND>command</COMMAND> - Execute command and see output automatically
    Example: <COMMAND>sudo pacman -S firefox</COMMAND>
 
-2. <WRITEFILE filename="path/to/file">content</WRITEFILE> - Create/write files. This wont execute any commands.
+2. <COMMAND_BACKGROUND>command</COMMAND_BACKGROUND> - Run long-running/blocking commands (servers, watch mode, etc.)
+   Example: <COMMAND_BACKGROUND>python3 -m http.server 8000</COMMAND_BACKGROUND>
+
+3. <WRITEFILE filename="path/to/file">content</WRITEFILE> - Create/write files. This wont execute any commands.
    Example: <WRITEFILE filename="/etc/nginx/nginx.conf">server {{ listen 80; }}</WRITEFILE>
    Note: Do NOT wrap content in markdown code blocks (```python etc.)
 
-3. <DONE>optional message</DONE> - Indicates you've completed the task
+4. <DONE>optional message</DONE> - Indicates you've completed the task
    Example: <DONE>Firefox has been successfully installed and configured</DONE>
 
 WORKFLOW:
 - ALWAYS use tags to perform actions - never just show code or instructions
 - Use <COMMAND>cmd</COMMAND> to execute commands and see their output
+- Use <COMMAND_BACKGROUND> for servers, daemons, watch modes, or any blocking process
 - Use <WRITEFILE> instead of nano/vim for creating files - DO NOT just show code blocks
 - After commands, you'll receive the output and can continue
+- If a command FAILS, analyze the error and try to fix it before giving up
 - End with <DONE> when your task is complete
+
+ERROR HANDLING:
+- ALWAYS check command outputs for errors
+- If a command fails, read the error message carefully
+- Try alternative approaches or fix the issue before continuing
+- Don't ignore failed commands - they need to be resolved
 
 CAPABILITIES:
 - Execute shell commands and see their output
+- Run background processes (servers, daemons)
 - Read/write files 
 - Monitor system resources
 - Install packages with pacman
@@ -102,6 +114,7 @@ RESPONSE GUIDELINES:
 - When asked to run something, use <COMMAND> to actually execute it
 - Make your responses clear and concise
 - You can iterate and see command outputs to complete complex tasks
+- MUST analyze errors and retry/fix failed commands
 - If you do not need to read any input always have a <DONE> tag
 
 IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> tags to actually perform actions!
@@ -175,12 +188,21 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
         """Extract commands and special tags from AI response in order"""
         all_tags = []
         
-        # Extract COMMAND tags
-        command_pattern = r'<COMMAND>(.*?)</COMMAND>'
-        for match in re.finditer(command_pattern, text, re.DOTALL | re.IGNORECASE):
+        # Extract COMMAND_BACKGROUND tags (check this first to avoid conflicts)
+        bg_command_pattern = r'<COMMAND_BACKGROUND>(.*?)</COMMAND_BACKGROUND>'
+        for match in re.finditer(bg_command_pattern, text, re.DOTALL | re.IGNORECASE):
             cmd = match.group(1).strip()
             if cmd:
-                all_tags.append((match.start(), 'command', cmd))
+                all_tags.append((match.start(), 'command_background', cmd))
+        
+        # Extract regular COMMAND tags
+        command_pattern = r'<COMMAND>(.*?)</COMMAND>'
+        for match in re.finditer(command_pattern, text, re.DOTALL | re.IGNORECASE):
+            # Skip if this is part of COMMAND_BACKGROUND
+            if '<COMMAND_BACKGROUND>' not in text[max(0, match.start()-20):match.start()]:
+                cmd = match.group(1).strip()
+                if cmd:
+                    all_tags.append((match.start(), 'command', cmd))
         
         # Extract WRITEFILE tags
         writefile_pattern = r'<WRITEFILE\s+filename="([^"]+)">(.*?)</WRITEFILE>'
@@ -272,6 +294,7 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
         
         # Execute all operations
         commands_needing_feedback = []
+        has_errors = False
         
         for pos, tag_type, data in tags["ordered_tags"]:
             if tag_type == 'command':
@@ -291,6 +314,40 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
                 # Collect output for AI feedback
                 formatted_output = self._format_command_result(cmd, result)
                 commands_needing_feedback.append(formatted_output)
+                
+                if not result["success"]:
+                    has_errors = True
+            
+            elif tag_type == 'command_background':
+                cmd = data
+                add_event("background_command_start", {"command": cmd})
+                
+                # Start background process
+                try:
+                    process = subprocess.Popen(
+                        cmd,
+                        shell=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    add_event("background_command_started", {
+                        "command": cmd,
+                        "pid": process.pid,
+                        "message": f"Background process started with PID {process.pid}"
+                    })
+                    commands_needing_feedback.append(
+                        f"Background Command: {cmd}\nStatus: Started successfully with PID {process.pid}"
+                    )
+                except Exception as e:
+                    add_event("background_command_error", {
+                        "command": cmd,
+                        "error": str(e)
+                    })
+                    commands_needing_feedback.append(
+                        f"Background Command: {cmd}\nError: {str(e)}"
+                    )
+                    has_errors = True
             
             elif tag_type == 'writefile':
                 filename, content = data
@@ -319,11 +376,18 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
                         "filename": filename,
                         "preview": cleaned_content[:200]
                     })
+                    commands_needing_feedback.append(
+                        f"File Written: {filename}\nStatus: Success"
+                    )
                 except Exception as e:
                     add_event("file_write_error", {
                         "filename": filename,
                         "error": str(e)
                     })
+                    commands_needing_feedback.append(
+                        f"File Write: {filename}\nError: {str(e)}"
+                    )
+                    has_errors = True
         
         # Handle completion
         if tags["is_done"]:
@@ -334,11 +398,21 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
         
         # Continue iteration if needed
         if commands_needing_feedback:
-            feedback_prompt = (
-                "Here are the results of the commands you requested:\n\n" +
-                "\n\n---\n\n".join(commands_needing_feedback) +
-                "\n\nPlease continue with your task or use <DONE>message</DONE> when finished."
-            )
+            # Emphasize errors if any occurred
+            if has_errors:
+                feedback_prompt = (
+                    "⚠️ ATTENTION: Some commands/operations FAILED. You MUST fix these errors before proceeding.\n\n"
+                    "Results:\n\n" +
+                    "\n\n---\n\n".join(commands_needing_feedback) +
+                    "\n\n🔴 CRITICAL: Analyze the errors above and fix them. Do not ignore failed commands!\n"
+                    "Use <COMMAND> to retry or fix issues, or use <DONE>message</DONE> if the task cannot be completed."
+                )
+            else:
+                feedback_prompt = (
+                    "All operations completed successfully. Results:\n\n" +
+                    "\n\n---\n\n".join(commands_needing_feedback) +
+                    "\n\nPlease continue with your task or use <DONE>message</DONE> when finished."
+                )
             
             add_event("ai_thinking", {})
             next_response = self.query_llm(feedback_prompt)
