@@ -632,33 +632,31 @@
 
         // Process events from backend
         let eventCounter = 0;
-        function processEvents(events) {
-            let currentCommandId = null;
-            let currentFileId = null;
-            let currentBgId = null;
+        function processEvent(event) {
+            // Process single event in real-time
+            let currentCommandId = `cmd-${++eventCounter}`;
+            let currentFileId = `file-${eventCounter}`;
+            let currentBgId = `bg-${eventCounter}`;
 
-            events.forEach((event, index) => {
-                // Small delay between events for better UX
-                setTimeout(() => {
-                    switch(event.type) {
-                        case 'ai_thinking':
-                            addThinking();
-                            break;
-                        
-                        case 'ai_response':
-                            removeThinking();
-                            addMessage('ai', event.data.message.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
-                            break;
-                        
-                        case 'command_start':
-                            currentCommandId = `cmd-${++eventCounter}`;
-                            addProgressIndicator(
-                                currentCommandId,
-                                '⚙️',
-                                `Executing: ${event.data.command}`,
-                                'executing'
-                            );
-                            break;
+            switch(event.type) {
+                case 'ai_thinking':
+                    addThinking();
+                    break;
+                
+                case 'ai_response':
+                    removeThinking();
+                    addMessage('ai', event.data.message.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+                    break;
+                
+                case 'command_start':
+                    currentCommandId = `cmd-${++eventCounter}`;
+                    addProgressIndicator(
+                        currentCommandId,
+                        '⚙️',
+                        `Executing: ${event.data.command}`,
+                        'executing'
+                    );
+                    break;
                     
                         case 'command_result':
                             if (currentCommandId) {
@@ -788,19 +786,17 @@
                             scrollToBottom();
                             break;
                         
-                        case 'task_complete':
-                            const completeDiv = document.createElement('div');
-                            completeDiv.className = 'task-complete';
-                            completeDiv.innerHTML = `
-                                <span style="font-size: 24px;">✅</span>
-                                <span>${escapeHtml(event.data.message || 'Task completed successfully!')}</span>
-                            `;
-                            chatContainer.appendChild(completeDiv);
-                            scrollToBottom();
-                            break;
-                    }
-                }, index * 150); // 150ms delay between events for smooth animation
-            });
+                    case 'task_complete':
+                        const completeDiv = document.createElement('div');
+                        completeDiv.className = 'task-complete';
+                        completeDiv.innerHTML = `
+                            <span style="font-size: 24px;">✅</span>
+                            <span>${escapeHtml(event.data.message || 'Task completed successfully!')}</span>
+                        `;
+                        chatContainer.appendChild(completeDiv);
+                        scrollToBottom();
+                        break;
+            }
         }
 
         function escapeHtml(text) {
@@ -821,6 +817,7 @@
             userInput.value = '';
 
             try {
+                // Use EventSource for Server-Sent Events
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: {
@@ -829,12 +826,44 @@
                     body: JSON.stringify({ message: message })
                 });
 
-                const data = await response.json();
-                
-                if (data.error) {
-                    addMessage('ai', `Error: ${data.error}`);
-                } else {
-                    processEvents(data.events);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                // Read the stream
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep incomplete line in buffer
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data.trim()) {
+                                try {
+                                    const event = JSON.parse(data);
+                                    if (event.type === 'end') {
+                                        // Stream ended
+                                        break;
+                                    } else if (event.type === 'error') {
+                                        addMessage('ai', `Error: ${event.data.message}`);
+                                    } else {
+                                        // Process event immediately
+                                        processEvent(event);
+                                    }
+                                } catch (e) {
+                                    console.error('Failed to parse event:', data, e);
+                                }
+                            }
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('Error:', error);

@@ -440,6 +440,10 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
             # Recursive iteration
             self._process_with_iteration(next_response, add_event)
 
+    def _process_with_iteration_streaming(self, ai_response: str, add_event):
+        """Same as _process_with_iteration but optimized for streaming"""
+        self._process_with_iteration(ai_response, add_event)
+
     def _format_command_result(self, command: str, result: dict) -> str:
         """Format command result for AI feedback"""
         output_parts = [f"Command: {command}"]
@@ -497,7 +501,47 @@ def status():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Process chat message"""
+    """Process chat message with streaming events"""
+    data = request.json
+    user_message = data.get('message', '').strip()
+    
+    if not user_message:
+        return jsonify({"error": "Empty message"}), 400
+    
+    def generate_events():
+        """Generator function for SSE"""
+        events = []
+        
+        def add_event(event_type: str, data: dict):
+            event = {
+                "type": event_type,
+                "timestamp": datetime.now().isoformat(),
+                "data": data
+            }
+            events.append(event)
+            # Send event immediately
+            yield f"data: {json.dumps(event)}\n\n"
+        
+        try:
+            # Query AI
+            add_event("ai_thinking", {})
+            ai_response = agent.query_llm(user_message)
+            add_event("ai_response", {"message": ai_response})
+            
+            # Process response iteratively
+            agent._process_with_iteration_streaming(ai_response, add_event)
+            
+            # Send end marker
+            yield f"data: {json.dumps({'type': 'end'})}\n\n"
+        except Exception as e:
+            logger.error(f"Error processing chat: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
+    
+    return Response(generate_events(), mimetype='text/event-stream')
+
+@app.route('/api/chat-legacy', methods=['POST'])
+def chat_legacy():
+    """Legacy non-streaming endpoint"""
     data = request.json
     user_message = data.get('message', '').strip()
     
