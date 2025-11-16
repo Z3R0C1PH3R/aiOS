@@ -126,6 +126,8 @@
             border-radius: 12px;
             line-height: 1.6;
             font-size: 15px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
 
         .user-message .message-content {
@@ -666,7 +668,9 @@
                 
                 case 'ai_response':
                     removeThinking();
-                    addMessage('ai', event.data.message.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+                    // Escape HTML but preserve newlines
+                    const escapedMessage = escapeHtml(event.data.message);
+                    addMessage('ai', escapedMessage);
                     break;
                 
                 case 'command_start':
