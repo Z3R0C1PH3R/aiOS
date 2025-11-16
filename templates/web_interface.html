@@ -223,7 +223,11 @@
             gap: 10px;
             color: #64748b;
             font-style: italic;
-            padding: 10px;
+            padding: 15px 20px;
+            background: white;
+            border-radius: 12px;
+            margin: 10px 0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
         .thinking-dots {
@@ -235,7 +239,7 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #64748b;
+            background: #667eea;
             animation: bounce 1.4s infinite ease-in-out both;
         }
 
@@ -245,6 +249,66 @@
         @keyframes bounce {
             0%, 80%, 100% { transform: scale(0); }
             40% { transform: scale(1); }
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 10px;
+        }
+
+        .spinner-small {
+            width: 14px;
+            height: 14px;
+            border-width: 2px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .progress-indicator {
+            background: white;
+            border-radius: 12px;
+            padding: 15px 20px;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .progress-indicator.executing {
+            border-left-color: #3b82f6;
+        }
+
+        .progress-indicator.success {
+            border-left-color: #10b981;
+        }
+
+        .progress-indicator.error {
+            border-left-color: #ef4444;
+        }
+
+        .progress-indicator.warning {
+            border-left-color: #f59e0b;
+        }
+
+        .progress-text {
+            flex: 1;
+            font-size: 14px;
+            color: #334155;
+        }
+
+        .progress-icon {
+            font-size: 20px;
         }
 
         .input-container {
@@ -517,7 +581,8 @@
             thinkingDiv.className = 'thinking';
             thinkingDiv.id = 'thinking';
             thinkingDiv.innerHTML = `
-                <span>🤔 AI is thinking</span>
+                <span class="progress-icon">🤔</span>
+                <span class="progress-text">AI is analyzing your request...</span>
                 <div class="thinking-dots">
                     <div class="thinking-dot"></div>
                     <div class="thinking-dot"></div>
@@ -533,137 +598,208 @@
             if (thinking) thinking.remove();
         }
 
+        // Add progress indicator
+        function addProgressIndicator(id, icon, text, type = '') {
+            removeProgressIndicator(id); // Remove if exists
+            const progressDiv = document.createElement('div');
+            progressDiv.className = `progress-indicator ${type}`;
+            progressDiv.id = `progress-${id}`;
+            progressDiv.innerHTML = `
+                <span class="progress-icon">${icon}</span>
+                <span class="progress-text">${text}</span>
+                <div class="spinner spinner-small"></div>
+            `;
+            chatContainer.appendChild(progressDiv);
+            scrollToBottom();
+            return progressDiv;
+        }
+
+        function updateProgressIndicator(id, icon, text, type = '') {
+            const progressDiv = document.getElementById(`progress-${id}`);
+            if (progressDiv) {
+                progressDiv.className = `progress-indicator ${type}`;
+                progressDiv.innerHTML = `
+                    <span class="progress-icon">${icon}</span>
+                    <span class="progress-text">${text}</span>
+                `;
+            }
+        }
+
+        function removeProgressIndicator(id) {
+            const progressDiv = document.getElementById(`progress-${id}`);
+            if (progressDiv) progressDiv.remove();
+        }
+
         // Process events from backend
+        let eventCounter = 0;
         function processEvents(events) {
-            events.forEach(event => {
-                switch(event.type) {
-                    case 'ai_thinking':
-                        addThinking();
-                        break;
-                    
-                    case 'ai_response':
-                        removeThinking();
-                        addMessage('ai', event.data.message.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
-                        break;
-                    
-                    case 'command_start':
-                        const cmdStartDiv = document.createElement('div');
-                        cmdStartDiv.className = 'command-execution';
-                        cmdStartDiv.innerHTML = `
-                            <div class="command-header">
-                                🔧 Executing Command
-                            </div>
-                            <div class="command-output">${escapeHtml(event.data.command)}</div>
-                        `;
-                        chatContainer.appendChild(cmdStartDiv);
-                        scrollToBottom();
-                        break;
-                    
-                    case 'command_result':
-                        const cmdDiv = document.createElement('div');
-                        cmdDiv.className = 'command-execution';
-                        const statusClass = event.data.success ? 'command-success' : 'command-error';
-                        const statusIcon = event.data.success ? '✅' : '❌';
-                        const output = event.data.success ? event.data.output : event.data.error;
+            let currentCommandId = null;
+            let currentFileId = null;
+            let currentBgId = null;
+
+            events.forEach((event, index) => {
+                // Small delay between events for better UX
+                setTimeout(() => {
+                    switch(event.type) {
+                        case 'ai_thinking':
+                            addThinking();
+                            break;
                         
-                        cmdDiv.innerHTML = `
-                            <div class="command-header ${statusClass}">
-                                ${statusIcon} Command ${event.data.success ? 'Completed' : 'Failed'}
-                            </div>
-                            <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
-                            ${output ? `<div class="command-output ${statusClass}">${escapeHtml(output)}</div>` : ''}
-                            <div style="margin-top: 8px; color: #94a3b8;">Exit code: ${event.data.return_code}</div>
-                        `;
-                        chatContainer.appendChild(cmdDiv);
-                        scrollToBottom();
-                        break;
+                        case 'ai_response':
+                            removeThinking();
+                            addMessage('ai', event.data.message.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+                            break;
+                        
+                        case 'command_start':
+                            currentCommandId = `cmd-${++eventCounter}`;
+                            addProgressIndicator(
+                                currentCommandId,
+                                '⚙️',
+                                `Executing: ${event.data.command}`,
+                                'executing'
+                            );
+                            break;
                     
-                    case 'background_command_start':
-                        const bgStartDiv = document.createElement('div');
-                        bgStartDiv.className = 'command-execution';
-                        bgStartDiv.innerHTML = `
-                            <div class="command-header" style="color: #fbbf24;">
-                                🔄 Starting Background Process
-                            </div>
-                            <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
-                        `;
-                        chatContainer.appendChild(bgStartDiv);
-                        scrollToBottom();
-                        break;
+                        case 'command_result':
+                            if (currentCommandId) {
+                                removeProgressIndicator(currentCommandId);
+                            }
+                            
+                            const cmdDiv = document.createElement('div');
+                            cmdDiv.className = 'command-execution';
+                            const statusClass = event.data.success ? 'command-success' : 'command-error';
+                            const statusIcon = event.data.success ? '✅' : '❌';
+                            const output = event.data.success ? event.data.output : event.data.error;
+                            
+                            cmdDiv.innerHTML = `
+                                <div class="command-header ${statusClass}">
+                                    ${statusIcon} Command ${event.data.success ? 'Completed' : 'Failed'}
+                                </div>
+                                <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
+                                ${output ? `<div class="command-output ${statusClass}">${escapeHtml(output)}</div>` : ''}
+                                <div style="margin-top: 8px; color: #94a3b8;">Exit code: ${event.data.return_code}</div>
+                            `;
+                            chatContainer.appendChild(cmdDiv);
+                            scrollToBottom();
+                            break;
+                        
+                        case 'background_command_start':
+                            currentBgId = `bg-${++eventCounter}`;
+                            addProgressIndicator(
+                                currentBgId,
+                                '🔄',
+                                `Starting background process: ${event.data.command}`,
+                                'executing'
+                            );
+                            break;
+                        
+                        case 'background_command_started':
+                            if (currentBgId) {
+                                removeProgressIndicator(currentBgId);
+                            }
+                            
+                            const bgDiv = document.createElement('div');
+                            bgDiv.className = 'command-execution';
+                            bgDiv.innerHTML = `
+                                <div class="command-header command-success">
+                                    ✅ Background Process Started
+                                </div>
+                                <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
+                                <div class="command-output command-success">
+                                    ${escapeHtml(event.data.message)}
+                                </div>
+                            `;
+                            chatContainer.appendChild(bgDiv);
+                            scrollToBottom();
+                            break;
+                        
+                        case 'background_command_error':
+                            if (currentBgId) {
+                                removeProgressIndicator(currentBgId);
+                            }
+                            
+                            const bgErrDiv = document.createElement('div');
+                            bgErrDiv.className = 'command-execution';
+                            bgErrDiv.innerHTML = `
+                                <div class="command-header command-error">
+                                    ❌ Background Process Failed
+                                </div>
+                                <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
+                                <div class="command-output command-error">${escapeHtml(event.data.error)}</div>
+                            `;
+                            chatContainer.appendChild(bgErrDiv);
+                            scrollToBottom();
+                            break;
+                        
+                        case 'file_write_start':
+                            currentFileId = `file-${++eventCounter}`;
+                            addProgressIndicator(
+                                currentFileId,
+                                '📝',
+                                `Writing file: ${event.data.filename}`,
+                                'executing'
+                            );
+                            break;
                     
-                    case 'background_command_started':
-                        const bgDiv = document.createElement('div');
-                        bgDiv.className = 'command-execution';
-                        bgDiv.innerHTML = `
-                            <div class="command-header command-success">
-                                ✅ Background Process Started
-                            </div>
-                            <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
-                            <div class="command-output command-success">
-                                ${escapeHtml(event.data.message)}
-                            </div>
-                        `;
-                        chatContainer.appendChild(bgDiv);
-                        scrollToBottom();
-                        break;
-                    
-                    case 'background_command_error':
-                        const bgErrDiv = document.createElement('div');
-                        bgErrDiv.className = 'command-execution';
-                        bgErrDiv.innerHTML = `
-                            <div class="command-header command-error">
-                                ❌ Background Process Failed
-                            </div>
-                            <div class="command-output">$ ${escapeHtml(event.data.command)}</div>
-                            <div class="command-output command-error">${escapeHtml(event.data.error)}</div>
-                        `;
-                        chatContainer.appendChild(bgErrDiv);
-                        scrollToBottom();
-                        break;
-                    
-                    case 'file_write_start':
-                        const fileStartDiv = document.createElement('div');
-                        fileStartDiv.className = 'file-write';
-                        fileStartDiv.innerHTML = `
-                            <div class="file-header">📝 Writing file: ${escapeHtml(event.data.filename)}</div>
-                        `;
-                        chatContainer.appendChild(fileStartDiv);
-                        scrollToBottom();
-                        break;
-                    
-                    case 'file_write_success':
-                        const fileDiv = document.createElement('div');
-                        fileDiv.className = 'file-write';
-                        fileDiv.innerHTML = `
-                            <div class="file-header">✅ File written: ${escapeHtml(event.data.filename)}</div>
-                            <div class="command-output">${escapeHtml(event.data.preview)}${event.data.preview.length >= 200 ? '...' : ''}</div>
-                        `;
-                        chatContainer.appendChild(fileDiv);
-                        scrollToBottom();
-                        break;
-                    
-                    case 'file_write_error':
-                        const fileErrDiv = document.createElement('div');
-                        fileErrDiv.className = 'file-write';
-                        fileErrDiv.innerHTML = `
-                            <div class="file-header">❌ Error writing file: ${escapeHtml(event.data.filename)}</div>
-                            <div class="command-output command-error">${escapeHtml(event.data.error)}</div>
-                        `;
-                        chatContainer.appendChild(fileErrDiv);
-                        scrollToBottom();
-                        break;
-                    
-                    case 'task_complete':
-                        const completeDiv = document.createElement('div');
-                        completeDiv.className = 'task-complete';
-                        completeDiv.innerHTML = `
-                            <span style="font-size: 24px;">✅</span>
-                            <span>${escapeHtml(event.data.message || 'Task completed successfully!')}</span>
-                        `;
-                        chatContainer.appendChild(completeDiv);
-                        scrollToBottom();
-                        break;
-                }
+                        case 'file_write_success':
+                            if (currentFileId) {
+                                removeProgressIndicator(currentFileId);
+                            }
+                            
+                            const fileDiv = document.createElement('div');
+                            fileDiv.className = 'file-write';
+                            fileDiv.innerHTML = `
+                                <div class="file-header">✅ File written: ${escapeHtml(event.data.filename)}</div>
+                                <div class="command-output">${escapeHtml(event.data.preview)}${event.data.preview.length >= 200 ? '...' : ''}</div>
+                            `;
+                            chatContainer.appendChild(fileDiv);
+                            scrollToBottom();
+                            break;
+                        
+                        case 'file_write_warning':
+                            if (currentFileId) {
+                                removeProgressIndicator(currentFileId);
+                            }
+                            
+                            const fileWarnDiv = document.createElement('div');
+                            fileWarnDiv.className = 'file-write';
+                            fileWarnDiv.style.background = '#854d0e';
+                            fileWarnDiv.innerHTML = `
+                                <div class="file-header">⚠️ File written (with warning): ${escapeHtml(event.data.filename)}</div>
+                                <div class="command-output" style="color: #fcd34d;">${escapeHtml(event.data.warning)}</div>
+                                <div class="command-output">${escapeHtml(event.data.preview)}${event.data.preview.length >= 200 ? '...' : ''}</div>
+                            `;
+                            chatContainer.appendChild(fileWarnDiv);
+                            scrollToBottom();
+                            break;
+                        
+                        case 'file_write_error':
+                            if (currentFileId) {
+                                removeProgressIndicator(currentFileId);
+                            }
+                            
+                            const fileErrDiv = document.createElement('div');
+                            fileErrDiv.className = 'file-write';
+                            fileErrDiv.innerHTML = `
+                                <div class="file-header">❌ Error writing file: ${escapeHtml(event.data.filename)}</div>
+                                <div class="command-output command-error">${escapeHtml(event.data.error)}</div>
+                            `;
+                            chatContainer.appendChild(fileErrDiv);
+                            scrollToBottom();
+                            break;
+                        
+                        case 'task_complete':
+                            const completeDiv = document.createElement('div');
+                            completeDiv.className = 'task-complete';
+                            completeDiv.innerHTML = `
+                                <span style="font-size: 24px;">✅</span>
+                                <span>${escapeHtml(event.data.message || 'Task completed successfully!')}</span>
+                            `;
+                            chatContainer.appendChild(completeDiv);
+                            scrollToBottom();
+                            break;
+                    }
+                }, index * 150); // 150ms delay between events for smooth animation
             });
         }
 

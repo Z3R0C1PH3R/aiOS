@@ -236,7 +236,7 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.7,
-                "max_tokens": 2048,
+                "max_tokens": 8192,
                 "stream": False
             }
             
@@ -364,6 +364,13 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
                         cleaned_content = cleaned_content[:-3]
                     cleaned_content = cleaned_content.strip()
                     
+                    # Check if content seems truncated
+                    is_truncated = (
+                        cleaned_content.endswith('...') or
+                        (filename.endswith('.html') and not cleaned_content.endswith('</html>')) or
+                        (filename.endswith('.py') and cleaned_content.count('def ') != cleaned_content.count('    return'))
+                    )
+                    
                     # Create directory if needed
                     dir_path = os.path.dirname(filename)
                     if dir_path:
@@ -372,13 +379,25 @@ IMPORTANT: Never just show code blocks - always use <WRITEFILE> and <COMMAND> ta
                     with open(filename, 'w') as f:
                         f.write(cleaned_content)
                     
-                    add_event("file_write_success", {
-                        "filename": filename,
-                        "preview": cleaned_content[:200]
-                    })
-                    commands_needing_feedback.append(
-                        f"File Written: {filename}\nStatus: Success"
-                    )
+                    if is_truncated:
+                        add_event("file_write_warning", {
+                            "filename": filename,
+                            "preview": cleaned_content[:200],
+                            "warning": "File content may be truncated"
+                        })
+                        commands_needing_feedback.append(
+                            f"File Written: {filename}\nStatus: SUCCESS but content appears TRUNCATED\n"
+                            f"⚠️ The file content may be incomplete. Consider writing smaller files or splitting content."
+                        )
+                        has_errors = True
+                    else:
+                        add_event("file_write_success", {
+                            "filename": filename,
+                            "preview": cleaned_content[:200]
+                        })
+                        commands_needing_feedback.append(
+                            f"File Written: {filename}\nStatus: Success\nSize: {len(cleaned_content)} bytes"
+                        )
                 except Exception as e:
                     add_event("file_write_error", {
                         "filename": filename,
