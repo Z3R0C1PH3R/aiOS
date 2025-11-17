@@ -54,6 +54,14 @@ class OSAgent:
         self.system_prompt = self._build_system_prompt()
         self.stop_requested = False
         self.tools = self._define_tools()
+    
+    def _format_size(self, size_bytes: int) -> str:
+        """Convert bytes to human-readable format"""
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} PB"
         
     def _define_tools(self) -> list:
         """Define available tools for LM Studio tool calling"""
@@ -95,8 +103,35 @@ class OSAgent:
             {
                 "type": "function",
                 "function": {
-                    "name": "write_file",
-                    "description": "Create or overwrite a file with content. Use this instead of text editors. You have root access to write anywhere.",
+                    "name": "read_file",
+                    "description": "Read file contents. Can read entire file or specific line ranges. Use this before editing to see current content.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "filename": {
+                                "type": "string",
+                                "description": "Absolute or relative path to the file to read"
+                            },
+                            "start_line": {
+                                "type": "integer",
+                                "description": "Optional: Starting line number (1-indexed). Omit to read entire file.",
+                                "minimum": 1
+                            },
+                            "end_line": {
+                                "type": "integer",
+                                "description": "Optional: Ending line number (1-indexed, inclusive). Only used with start_line.",
+                                "minimum": 1
+                            }
+                        },
+                        "required": ["filename"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "edit_file",
+                    "description": "Edit a file with multiple operations: write (overwrite entire file), append (add to end), insert (add at specific line), or replace (find & replace text). Choose the operation that best fits your need.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -104,12 +139,166 @@ class OSAgent:
                                 "type": "string",
                                 "description": "Absolute or relative path to the file"
                             },
+                            "operation": {
+                                "type": "string",
+                                "enum": ["write", "append", "insert", "replace"],
+                                "description": "write: Replace entire file | append: Add to end | insert: Add at line number | replace: Find & replace text"
+                            },
                             "content": {
                                 "type": "string",
-                                "description": "The complete file content (do not use markdown code blocks)"
+                                "description": "Content to write/append/insert (not used for 'replace' operation)"
+                            },
+                            "line_number": {
+                                "type": "integer",
+                                "description": "Line number for 'insert' operation (1-indexed). Content will be inserted BEFORE this line.",
+                                "minimum": 1
+                            },
+                            "search": {
+                                "type": "string",
+                                "description": "Text to search for in 'replace' operation"
+                            },
+                            "replace": {
+                                "type": "string",
+                                "description": "Text to replace with in 'replace' operation"
                             }
                         },
-                        "required": ["filename", "content"]
+                        "required": ["filename", "operation"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_directory",
+                    "description": "List contents of a directory with detailed information. Better than 'ls' command as it returns structured data.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Absolute or relative path to directory (default: current directory)"
+                            },
+                            "show_hidden": {
+                                "type": "boolean",
+                                "description": "Include hidden files/directories (starting with .)"
+                            },
+                            "recursive": {
+                                "type": "boolean",
+                                "description": "List subdirectories recursively (tree view)"
+                            }
+                        },
+                        "required": ["path"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_file_info",
+                    "description": "Get detailed metadata about a file or directory: size, permissions, modified date, type, etc.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Absolute or relative path to file or directory"
+                            }
+                        },
+                        "required": ["path"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "network_request",
+                    "description": "Make HTTP/HTTPS requests. Use for API calls, health checks, fetching data. Returns parsed JSON automatically.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "description": "Full URL to request (must include http:// or https://)"
+                            },
+                            "method": {
+                                "type": "string",
+                                "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
+                                "description": "HTTP method (default: GET)"
+                            },
+                            "headers": {
+                                "type": "object",
+                                "description": "Optional HTTP headers as key-value pairs"
+                            },
+                            "body": {
+                                "type": "string",
+                                "description": "Request body (for POST/PUT/PATCH). Will be sent as-is."
+                            },
+                            "timeout": {
+                                "type": "integer",
+                                "description": "Request timeout in seconds (default: 30)"
+                            }
+                        },
+                        "required": ["url"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_processes",
+                    "description": "List running processes with CPU and memory usage. Filter and sort results. Better than parsing 'ps' output.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "filter": {
+                                "type": "string",
+                                "description": "Filter processes by name (case-insensitive substring match)"
+                            },
+                            "sort_by": {
+                                "type": "string",
+                                "enum": ["cpu", "memory", "pid", "name"],
+                                "description": "Sort processes by this field (default: cpu)"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of processes to return (default: 20)"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_files",
+                    "description": "Search for files and directories by name pattern. Supports glob patterns (*, ?, [abc]). Better than 'find' command.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "pattern": {
+                                "type": "string",
+                                "description": "Glob pattern to match (e.g., '*.py', 'config.*', 'test_*.js')"
+                            },
+                            "path": {
+                                "type": "string",
+                                "description": "Directory to search in (default: current directory)"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": ["file", "directory", "both"],
+                                "description": "What to search for (default: both)"
+                            },
+                            "recursive": {
+                                "type": "boolean",
+                                "description": "Search in subdirectories recursively (default: true)"
+                            },
+                            "max_results": {
+                                "type": "integer",
+                                "description": "Maximum number of results to return (default: 100)"
+                            }
+                        },
+                        "required": ["pattern"]
                     }
                 }
             }
@@ -131,10 +320,10 @@ EXECUTION CONTEXT:
 - ALWAYS use --noconfirm, -y, or equivalent flags for package managers
 
 AVAILABLE TOOLS:
-You have access to three tools via function calling:
+You have access to these tools via function calling:
 
 1. execute_command(command): Run shell commands and see output
-   - Use for: package installation, system commands, file operations, checks
+   - Use for: package installation, system commands, checking status
    - Examples: "pacman -Syu --noconfirm", "ls -la", "systemctl status nginx"
    - Remember: NO sudo, ALWAYS --noconfirm for pacman
 
@@ -142,10 +331,61 @@ You have access to three tools via function calling:
    - Use for: servers, daemons, watch modes, blocking processes
    - Examples: "python3 -m http.server 8000", "npm run dev"
 
-3. write_file(filename, content): Create/write files
-   - Use for: creating configuration files, scripts, code
-   - You have root access - can write anywhere
-   - DO NOT use markdown code blocks in content
+FILE OPERATIONS:
+3. read_file(filename, start_line?, end_line?): Read file contents
+   - Entire file: read_file("config.json")
+   - Specific lines: read_file("app.py", start_line=10, end_line=20)
+   - Use BEFORE editing to see current content
+
+4. edit_file(filename, operation, ...): Unified file editing tool
+   
+   operation="write" - Replace ENTIRE file
+   - edit_file("config.json", "write", content="...")
+   - Use for: new files or complete rewrites
+   
+   operation="append" - Add to end of file
+   - edit_file("log.txt", "append", content="New log entry\n")
+   - Use for: adding to logs, appending data
+   
+   operation="insert" - Insert at specific line number
+   - edit_file("app.py", "insert", content="import os\n", line_number=5)
+   - Content inserted BEFORE the line number (1-indexed)
+   - Use for: adding imports, inserting functions, adding config entries
+   
+   operation="replace" - Find and replace text
+   - edit_file("config.json", "replace", search="8080", replace="3000")
+   - Replaces ALL occurrences
+   - Use for: changing values, updating text
+
+SYSTEM OPERATIONS:
+5. list_directory(path?, show_hidden?, recursive?): List directory contents
+   - list_directory(".") - Current directory
+   - list_directory("/etc", show_hidden=True) - Include hidden files
+   - list_directory("/var/log", recursive=True) - Recursive listing
+   - Returns structured data with file metadata (size, type, permissions, modified date)
+
+6. get_file_info(path): Get detailed file/directory metadata
+   - get_file_info("config.json") - Size, permissions, dates, type, line count
+   - Better than 'stat' command - returns structured data
+   - Use for checking file properties before operations
+
+7. network_request(url, method?, headers?, body?, timeout?): Make HTTP requests
+   - network_request("https://api.example.com/data") - GET request
+   - network_request("https://api.example.com/upload", method="POST", body='{"key":"value"}')
+   - Automatically parses JSON responses
+   - Use for: API calls, downloading data, checking endpoints
+
+8. get_processes(filter?, sort_by?, limit?): List running processes
+   - get_processes() - Top 20 processes by CPU
+   - get_processes(filter="python", sort_by="memory") - Filter by name, sort by memory
+   - get_processes(limit=50) - Get top 50 processes
+   - Better than 'ps' - returns structured data with CPU%, memory%, status
+
+9. search_files(pattern, path?, type?, recursive?, max_results?): Search for files
+   - search_files("*.py") - Find all Python files in current directory
+   - search_files("config.*", path="/etc", recursive=True) - Search /etc recursively
+   - search_files("*.log", type="file", max_results=50) - Only files, limit results
+   - Uses glob patterns: * (any), ? (single char), [abc] (character set)
 
 WORKFLOW:
 - Use tools to perform all actions
@@ -338,6 +578,7 @@ Provide a brief summary (2-3 sentences):"""
             if response.status_code == 200:
                 result = response.json()
                 message = result["choices"][0]["message"]
+                usage = result.get("usage", {})
                 
                 # Store user message
                 self.conversation_history.append({"role": "user", "content": prompt})
@@ -359,7 +600,17 @@ Provide a brief summary (2-3 sentences):"""
                     "success": True,
                     "message": message.get("content"),
                     "tool_calls": message.get("tool_calls", []),
-                    "finish_reason": result["choices"][0].get("finish_reason")
+                    "finish_reason": result["choices"][0].get("finish_reason"),
+                    "usage": {
+                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                        "completion_tokens": usage.get("completion_tokens", 0),
+                        "total_tokens": usage.get("total_tokens", 0)
+                    },
+                    "context_info": {
+                        "conversation_messages": len(self.conversation_history),
+                        "estimated_context_tokens": self.get_conversation_tokens(),
+                        "max_context_tokens": MAX_CONTEXT_TOKENS
+                    }
                 }
             else:
                 return {
@@ -402,33 +653,446 @@ Provide a brief summary (2-3 sentences):"""
                         "return_code": -1
                     }
             
-            elif tool_name == "write_file":
+            elif tool_name == "read_file":
                 filename = arguments["filename"]
-                content = arguments["content"]
+                start_line = arguments.get("start_line")
+                end_line = arguments.get("end_line")
                 
-                # Clean content (remove markdown code blocks if present)
-                cleaned_content = content.strip()
-                if cleaned_content.startswith('```'):
-                    lines = cleaned_content.split('\n')
-                    if lines[0].startswith('```'):
-                        lines = lines[1:]
-                    if lines and lines[-1].strip() == '```':
-                        lines = lines[:-1]
-                    cleaned_content = '\n'.join(lines)
+                with open(filename, 'r') as f:
+                    if start_line is not None:
+                        # Read specific lines
+                        lines = f.readlines()
+                        start_idx = max(0, start_line - 1)
+                        end_idx = end_line if end_line is None else min(len(lines), end_line)
+                        selected_lines = lines[start_idx:end_idx]
+                        content = ''.join(selected_lines)
+                        
+                        return {
+                            "success": True,
+                            "output": content,
+                            "filename": filename,
+                            "start_line": start_line,
+                            "end_line": end_idx,
+                            "lines_read": len(selected_lines),
+                            "return_code": 0
+                        }
+                    else:
+                        # Read entire file
+                        content = f.read()
+                        return {
+                            "success": True,
+                            "output": content,
+                            "filename": filename,
+                            "size": len(content),
+                            "lines": len(content.splitlines()),
+                            "return_code": 0
+                        }
+            
+            elif tool_name == "edit_file":
+                filename = arguments["filename"]
+                operation = arguments["operation"]
                 
-                # Create directory if needed
-                dir_path = os.path.dirname(filename)
-                if dir_path:
-                    os.makedirs(dir_path, exist_ok=True)
+                if operation == "write":
+                    # Overwrite entire file
+                    content = arguments.get("content", "")
+                    
+                    # Clean content (remove markdown code blocks if present)
+                    cleaned_content = content.strip()
+                    if cleaned_content.startswith('```'):
+                        lines = cleaned_content.split('\n')
+                        if lines[0].startswith('```'):
+                            lines = lines[1:]
+                        if lines and lines[-1].strip() == '```':
+                            lines = lines[:-1]
+                        cleaned_content = '\n'.join(lines)
+                    
+                    # Create directory if needed
+                    dir_path = os.path.dirname(filename)
+                    if dir_path:
+                        os.makedirs(dir_path, exist_ok=True)
+                    
+                    with open(filename, 'w') as f:
+                        f.write(cleaned_content)
+                    
+                    return {
+                        "success": True,
+                        "output": f"File written: {filename} ({len(cleaned_content)} bytes)",
+                        "filename": filename,
+                        "operation": "write",
+                        "size": len(cleaned_content),
+                        "return_code": 0
+                    }
                 
-                with open(filename, 'w') as f:
-                    f.write(cleaned_content)
+                elif operation == "append":
+                    # Append to end of file
+                    content = arguments.get("content", "")
+                    
+                    # Create directory if needed
+                    dir_path = os.path.dirname(filename)
+                    if dir_path:
+                        os.makedirs(dir_path, exist_ok=True)
+                    
+                    with open(filename, 'a') as f:
+                        f.write(content)
+                    
+                    return {
+                        "success": True,
+                        "output": f"Content appended to: {filename} ({len(content)} bytes added)",
+                        "filename": filename,
+                        "operation": "append",
+                        "bytes_added": len(content),
+                        "return_code": 0
+                    }
+                
+                elif operation == "insert":
+                    # Insert at specific line
+                    content = arguments.get("content", "")
+                    line_number = arguments.get("line_number", 1)
+                    
+                    # Read existing content
+                    try:
+                        with open(filename, 'r') as f:
+                            lines = f.readlines()
+                    except FileNotFoundError:
+                        lines = []
+                    
+                    # Insert content (line_number is 1-indexed, insert BEFORE that line)
+                    insert_idx = max(0, min(line_number - 1, len(lines)))
+                    
+                    # Ensure content ends with newline if it doesn't
+                    if content and not content.endswith('\n'):
+                        content += '\n'
+                    
+                    lines.insert(insert_idx, content)
+                    
+                    # Create directory if needed
+                    dir_path = os.path.dirname(filename)
+                    if dir_path:
+                        os.makedirs(dir_path, exist_ok=True)
+                    
+                    # Write back
+                    with open(filename, 'w') as f:
+                        f.writelines(lines)
+                    
+                    return {
+                        "success": True,
+                        "output": f"Content inserted at line {line_number} in {filename}",
+                        "filename": filename,
+                        "operation": "insert",
+                        "line_number": line_number,
+                        "return_code": 0
+                    }
+                
+                elif operation == "replace":
+                    # Find and replace
+                    search = arguments.get("search", "")
+                    replace = arguments.get("replace", "")
+                    
+                    with open(filename, 'r') as f:
+                        content = f.read()
+                    
+                    # Count occurrences
+                    count = content.count(search)
+                    
+                    if count == 0:
+                        return {
+                            "success": False,
+                            "error": f"Search text not found in {filename}",
+                            "output": "No matches found",
+                            "return_code": 1
+                        }
+                    
+                    # Replace all occurrences
+                    new_content = content.replace(search, replace)
+                    
+                    with open(filename, 'w') as f:
+                        f.write(new_content)
+                    
+                    return {
+                        "success": True,
+                        "output": f"Replaced {count} occurrence(s) in {filename}",
+                        "filename": filename,
+                        "operation": "replace",
+                        "replacements": count,
+                        "search": search,
+                        "replace": replace,
+                        "return_code": 0
+                    }
+                
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Unknown operation: {operation}",
+                        "return_code": 1
+                    }
+            
+            elif tool_name == "list_directory":
+                path = arguments.get("path", ".")
+                show_hidden = arguments.get("show_hidden", False)
+                recursive = arguments.get("recursive", False)
+                
+                results = []
+                
+                def scan_dir(dir_path, level=0):
+                    try:
+                        entries = []
+                        for entry in os.scandir(dir_path):
+                            if not show_hidden and entry.name.startswith('.'):
+                                continue
+                            
+                            stat_info = entry.stat()
+                            is_dir = entry.is_dir()
+                            
+                            entry_info = {
+                                "name": entry.name,
+                                "path": entry.path,
+                                "type": "directory" if is_dir else "file",
+                                "size": stat_info.st_size if not is_dir else 0,
+                                "modified": datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
+                                "permissions": oct(stat_info.st_mode)[-3:],
+                                "level": level
+                            }
+                            entries.append(entry_info)
+                            
+                            if recursive and is_dir:
+                                scan_dir(entry.path, level + 1)
+                        
+                        # Sort: directories first, then alphabetically
+                        entries.sort(key=lambda x: (x["type"] != "directory", x["name"].lower()))
+                        results.extend(entries)
+                    except PermissionError:
+                        pass
+                
+                scan_dir(path)
+                
+                # Format output
+                output_lines = []
+                for item in results:
+                    indent = "  " * item["level"]
+                    icon = "📁" if item["type"] == "directory" else "📄"
+                    size_str = f"{item['size']:,} bytes" if item["type"] == "file" else ""
+                    output_lines.append(f"{indent}{icon} {item['name']} {size_str}")
                 
                 return {
                     "success": True,
-                    "output": f"File written: {filename} ({len(cleaned_content)} bytes)",
-                    "filename": filename,
-                    "size": len(cleaned_content),
+                    "output": "\n".join(output_lines),
+                    "path": path,
+                    "count": len(results),
+                    "items": results,
+                    "return_code": 0
+                }
+            
+            elif tool_name == "get_file_info":
+                path = arguments["path"]
+                
+                stat_info = os.stat(path)
+                is_dir = os.path.isdir(path)
+                is_file = os.path.isfile(path)
+                is_link = os.path.islink(path)
+                
+                info = {
+                    "path": path,
+                    "name": os.path.basename(path),
+                    "type": "directory" if is_dir else "file" if is_file else "symlink" if is_link else "other",
+                    "size": stat_info.st_size,
+                    "size_human": self._format_size(stat_info.st_size),
+                    "permissions": oct(stat_info.st_mode)[-3:],
+                    "owner_uid": stat_info.st_uid,
+                    "group_gid": stat_info.st_gid,
+                    "created": datetime.fromtimestamp(stat_info.st_ctime).isoformat(),
+                    "modified": datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
+                    "accessed": datetime.fromtimestamp(stat_info.st_atime).isoformat()
+                }
+                
+                # Add file-specific info
+                if is_file:
+                    try:
+                        with open(path, 'r') as f:
+                            content = f.read()
+                            info["lines"] = len(content.splitlines())
+                            info["characters"] = len(content)
+                    except:
+                        pass
+                
+                # Format output
+                output = f"""Path: {info['path']}
+Type: {info['type']}
+Size: {info['size_human']} ({info['size']:,} bytes)
+Permissions: {info['permissions']}
+Modified: {info['modified']}
+Created: {info['created']}"""
+                
+                if "lines" in info:
+                    output += f"\nLines: {info['lines']:,}"
+                
+                return {
+                    "success": True,
+                    "output": output,
+                    "info": info,
+                    "return_code": 0
+                }
+            
+            elif tool_name == "network_request":
+                url = arguments["url"]
+                method = arguments.get("method", "GET").upper()
+                headers = arguments.get("headers", {})
+                body = arguments.get("body")
+                timeout = arguments.get("timeout", 30)
+                
+                try:
+                    request_kwargs = {
+                        "method": method,
+                        "url": url,
+                        "headers": headers,
+                        "timeout": timeout
+                    }
+                    
+                    if body and method in ["POST", "PUT", "PATCH"]:
+                        request_kwargs["data"] = body
+                    
+                    response = requests.request(**request_kwargs)
+                    
+                    # Try to parse JSON
+                    try:
+                        response_data = response.json()
+                        content_type = "json"
+                    except:
+                        response_data = response.text
+                        content_type = "text"
+                    
+                    return {
+                        "success": True,
+                        "output": json.dumps(response_data, indent=2) if content_type == "json" else response_data,
+                        "status_code": response.status_code,
+                        "headers": dict(response.headers),
+                        "content_type": content_type,
+                        "data": response_data,
+                        "return_code": 0
+                    }
+                except requests.exceptions.Timeout:
+                    return {
+                        "success": False,
+                        "error": f"Request timed out after {timeout} seconds",
+                        "return_code": 1
+                    }
+                except requests.exceptions.ConnectionError as e:
+                    return {
+                        "success": False,
+                        "error": f"Connection error: {str(e)}",
+                        "return_code": 1
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"Request failed: {str(e)}",
+                        "return_code": 1
+                    }
+            
+            elif tool_name == "get_processes":
+                filter_name = arguments.get("filter", "")
+                sort_by = arguments.get("sort_by", "cpu")
+                limit = arguments.get("limit", 20)
+                
+                processes = []
+                for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'status', 'username']):
+                    try:
+                        pinfo = proc.info
+                        
+                        # Filter by name
+                        if filter_name and filter_name.lower() not in pinfo['name'].lower():
+                            continue
+                        
+                        processes.append({
+                            "pid": pinfo['pid'],
+                            "name": pinfo['name'],
+                            "cpu_percent": pinfo['cpu_percent'] or 0,
+                            "memory_percent": pinfo['memory_percent'] or 0,
+                            "status": pinfo['status'],
+                            "user": pinfo['username']
+                        })
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                
+                # Sort processes
+                sort_keys = {
+                    "cpu": lambda x: x["cpu_percent"],
+                    "memory": lambda x: x["memory_percent"],
+                    "pid": lambda x: x["pid"],
+                    "name": lambda x: x["name"].lower()
+                }
+                processes.sort(key=sort_keys.get(sort_by, sort_keys["cpu"]), reverse=(sort_by in ["cpu", "memory"]))
+                
+                # Limit results
+                processes = processes[:limit]
+                
+                # Format output
+                output_lines = [f"{'PID':<8} {'CPU%':<8} {'MEM%':<8} {'STATUS':<12} {'NAME'}"]
+                output_lines.append("-" * 60)
+                for proc in processes:
+                    output_lines.append(
+                        f"{proc['pid']:<8} {proc['cpu_percent']:<8.1f} {proc['memory_percent']:<8.1f} "
+                        f"{proc['status']:<12} {proc['name']}"
+                    )
+                
+                return {
+                    "success": True,
+                    "output": "\n".join(output_lines),
+                    "processes": processes,
+                    "count": len(processes),
+                    "return_code": 0
+                }
+            
+            elif tool_name == "search_files":
+                pattern = arguments["pattern"]
+                search_path = arguments.get("path", ".")
+                search_type = arguments.get("type", "both")
+                recursive = arguments.get("recursive", True)
+                max_results = arguments.get("max_results", 100)
+                
+                import glob as glob_module
+                
+                # Build glob pattern
+                if recursive:
+                    glob_pattern = os.path.join(search_path, "**", pattern)
+                else:
+                    glob_pattern = os.path.join(search_path, pattern)
+                
+                # Search
+                results = []
+                for path in glob_module.glob(glob_pattern, recursive=recursive):
+                    is_dir = os.path.isdir(path)
+                    
+                    # Filter by type
+                    if search_type == "file" and is_dir:
+                        continue
+                    if search_type == "directory" and not is_dir:
+                        continue
+                    
+                    stat_info = os.stat(path)
+                    results.append({
+                        "path": path,
+                        "name": os.path.basename(path),
+                        "type": "directory" if is_dir else "file",
+                        "size": stat_info.st_size if not is_dir else 0,
+                        "modified": datetime.fromtimestamp(stat_info.st_mtime).isoformat()
+                    })
+                    
+                    if len(results) >= max_results:
+                        break
+                
+                # Format output
+                output_lines = []
+                for item in results:
+                    icon = "📁" if item["type"] == "directory" else "📄"
+                    size_str = f"({item['size']:,} bytes)" if item["type"] == "file" else ""
+                    output_lines.append(f"{icon} {item['path']} {size_str}")
+                
+                return {
+                    "success": True,
+                    "output": "\n".join(output_lines) if output_lines else "No matches found",
+                    "pattern": pattern,
+                    "results": results,
+                    "count": len(results),
                     "return_code": 0
                 }
             
@@ -471,6 +1135,23 @@ Provide a brief summary (2-3 sentences):"""
             yield yield_event("error", {"message": response.get("error", "Unknown error")})
             return
         
+        # Emit usage stats
+        if response.get("usage"):
+            yield yield_event("usage_stats", {
+                "prompt_tokens": response["usage"]["prompt_tokens"],
+                "completion_tokens": response["usage"]["completion_tokens"],
+                "total_tokens": response["usage"]["total_tokens"],
+                "context_info": response.get("context_info", {})
+            })
+        
+        # Emit tool calls info if any
+        if response.get("tool_calls"):
+            tool_names = [tc["function"]["name"] for tc in response["tool_calls"]]
+            yield yield_event("tool_calls_planned", {
+                "count": len(response["tool_calls"]),
+                "tools": tool_names
+            })
+        
         if response["message"]:
             yield yield_event("ai_response", {"message": response["message"]})
         
@@ -499,8 +1180,21 @@ Provide a brief summary (2-3 sentences):"""
                     yield yield_event("command_start", {"command": arguments["command"]})
                 elif tool_name == "execute_background_command":
                     yield yield_event("background_command_start", {"command": arguments["command"]})
-                elif tool_name == "write_file":
-                    yield yield_event("file_write_start", {"filename": arguments["filename"]})
+                elif tool_name == "edit_file":
+                    operation = arguments.get("operation", "write")
+                    yield yield_event("file_write_start", {"filename": arguments["filename"], "operation": operation})
+                elif tool_name == "read_file":
+                    yield yield_event("file_read_start", {"filename": arguments["filename"]})
+                elif tool_name == "list_directory":
+                    yield yield_event("list_directory_start", {"path": arguments.get("path", ".")})
+                elif tool_name == "get_file_info":
+                    yield yield_event("get_file_info_start", {"path": arguments["path"]})
+                elif tool_name == "network_request":
+                    yield yield_event("network_request_start", {"url": arguments["url"], "method": arguments.get("method", "GET")})
+                elif tool_name == "get_processes":
+                    yield yield_event("get_processes_start", {"filter": arguments.get("filter", "")})
+                elif tool_name == "search_files":
+                    yield yield_event("search_files_start", {"pattern": arguments["pattern"], "path": arguments.get("path", ".")})
                 
                 # Execute tool
                 result = self.execute_tool(tool_name, arguments)
@@ -526,15 +1220,120 @@ Provide a brief summary (2-3 sentences):"""
                             "command": arguments["command"],
                             "error": result["error"]
                         })
-                elif tool_name == "write_file":
+                elif tool_name == "edit_file":
+                    operation = result.get("operation", arguments.get("operation", "write"))
                     if result["success"]:
-                        yield yield_event("file_write_success", {
+                        event_data = {
                             "filename": arguments["filename"],
-                            "content": arguments["content"]  # Full content, not just preview
-                        })
+                            "operation": operation
+                        }
+                        
+                        # Add operation-specific data
+                        if operation == "write":
+                            event_data["content"] = arguments.get("content", "")
+                        elif operation == "append":
+                            event_data["content"] = arguments.get("content", "")
+                            event_data["bytes_added"] = result.get("bytes_added", 0)
+                        elif operation == "insert":
+                            event_data["content"] = arguments.get("content", "")
+                            event_data["line_number"] = result.get("line_number", 0)
+                        elif operation == "replace":
+                            event_data["replacements"] = result.get("replacements", 0)
+                            event_data["search"] = result.get("search", "")
+                            event_data["replace"] = result.get("replace", "")
+                        
+                        yield yield_event("file_write_success", event_data)
                     else:
                         yield yield_event("file_write_error", {
                             "filename": arguments["filename"],
+                            "error": result["error"]
+                        })
+                elif tool_name == "read_file":
+                    if result["success"]:
+                        event_data = {
+                            "filename": arguments["filename"],
+                            "content": result["output"]
+                        }
+                        
+                        # Add info based on what was read
+                        if "lines" in result:
+                            # Full file read
+                            event_data["size"] = result.get("size", 0)
+                            event_data["lines"] = result.get("lines", 0)
+                        else:
+                            # Partial read
+                            event_data["start_line"] = result.get("start_line", 1)
+                            event_data["end_line"] = result.get("end_line", 0)
+                            event_data["lines_read"] = result.get("lines_read", 0)
+                        
+                        yield yield_event("file_read_success", event_data)
+                    else:
+                        yield yield_event("file_read_error", {
+                            "filename": arguments["filename"],
+                            "error": result["error"]
+                        })
+                elif tool_name == "list_directory":
+                    if result["success"]:
+                        yield yield_event("list_directory_success", {
+                            "path": result["path"],
+                            "count": result["count"],
+                            "output": result["output"],
+                            "items": result.get("items", [])
+                        })
+                    else:
+                        yield yield_event("list_directory_error", {
+                            "path": arguments.get("path", "."),
+                            "error": result["error"]
+                        })
+                elif tool_name == "get_file_info":
+                    if result["success"]:
+                        yield yield_event("get_file_info_success", {
+                            "path": result["info"]["path"],
+                            "output": result["output"],
+                            "info": result["info"]
+                        })
+                    else:
+                        yield yield_event("get_file_info_error", {
+                            "path": arguments["path"],
+                            "error": result["error"]
+                        })
+                elif tool_name == "network_request":
+                    if result["success"]:
+                        yield yield_event("network_request_success", {
+                            "url": arguments["url"],
+                            "method": arguments.get("method", "GET"),
+                            "status_code": result["status_code"],
+                            "output": result["output"],
+                            "content_type": result["content_type"]
+                        })
+                    else:
+                        yield yield_event("network_request_error", {
+                            "url": arguments["url"],
+                            "method": arguments.get("method", "GET"),
+                            "error": result["error"]
+                        })
+                elif tool_name == "get_processes":
+                    if result["success"]:
+                        yield yield_event("get_processes_success", {
+                            "count": result["count"],
+                            "output": result["output"],
+                            "processes": result.get("processes", [])
+                        })
+                    else:
+                        yield yield_event("get_processes_error", {
+                            "error": result["error"]
+                        })
+                elif tool_name == "search_files":
+                    if result["success"]:
+                        yield yield_event("search_files_success", {
+                            "pattern": result["pattern"],
+                            "count": result["count"],
+                            "output": result["output"],
+                            "results": result.get("results", [])
+                        })
+                    else:
+                        yield yield_event("search_files_error", {
+                            "pattern": arguments["pattern"],
                             "error": result["error"]
                         })
                 
@@ -548,6 +1347,23 @@ Provide a brief summary (2-3 sentences):"""
             # Get next AI response
             yield yield_event("ai_thinking", {})
             response = self.query_llm("", use_tools=True)
+            
+            # Emit usage stats
+            if response.get("usage"):
+                yield yield_event("usage_stats", {
+                    "prompt_tokens": response["usage"]["prompt_tokens"],
+                    "completion_tokens": response["usage"]["completion_tokens"],
+                    "total_tokens": response["usage"]["total_tokens"],
+                    "context_info": response.get("context_info", {})
+                })
+            
+            # Emit tool calls info if any
+            if response.get("tool_calls"):
+                tool_names = [tc["function"]["name"] for tc in response["tool_calls"]]
+                yield yield_event("tool_calls_planned", {
+                    "count": len(response["tool_calls"]),
+                    "tools": tool_names
+                })
             
             if response.get("message"):
                 yield yield_event("ai_response", {"message": response["message"]})

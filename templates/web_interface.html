@@ -219,6 +219,70 @@
             gap: 10px;
         }
 
+        .usage-stats {
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 10px;
+            margin: 10px 0;
+            font-size: 13px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .usage-stats .stat-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        .usage-stats .stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .usage-stats .stat-label {
+            font-size: 11px;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .usage-stats .stat-value {
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .tool-calls-info {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            margin: 10px 0;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tool-calls-info .tools-list {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .tool-calls-info .tool-badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+        }
+
         .thinking {
             display: flex;
             align-items: center;
@@ -779,11 +843,75 @@
                     
                     const fileDiv = document.createElement('div');
                     fileDiv.className = 'file-write';
+                    
+                    // Different headers for different operations
+                    let header = '✅ File written: ';
+                    let extraInfo = '';
+                    
+                    if (event.data.operation === 'append') {
+                        header = '✅ Content appended to: ';
+                        extraInfo = `<div class="command-output" style="color: #86efac;">${event.data.bytes_added} bytes added</div>`;
+                    } else if (event.data.operation === 'insert') {
+                        header = `✅ Content inserted at line ${event.data.line_number} in: `;
+                    } else if (event.data.operation === 'replace') {
+                        header = `✅ Replaced ${event.data.replacements} occurrence(s) in: `;
+                        extraInfo = `<div class="command-output" style="color: #86efac;">Search: "${escapeHtml(event.data.search)}"<br>Replace: "${escapeHtml(event.data.replace)}"</div>`;
+                    }
+                    
                     fileDiv.innerHTML = `
-                        <div class="file-header">✅ File written: ${escapeHtml(event.data.filename)}</div>
-                        <pre class="command-output">${escapeHtml(event.data.content)}</pre>
+                        <div class="file-header">${header}${escapeHtml(event.data.filename)}</div>
+                        ${event.data.content ? `<pre class="command-output">${escapeHtml(event.data.content)}</pre>` : ''}
+                        ${extraInfo}
                     `;
                     chatContainer.appendChild(fileDiv);
+                    scrollToBottom();
+                    break;
+                
+                case 'file_read_start':
+                    currentProgressIds.file = addProgressIndicator(
+                        `📖 Reading ${escapeHtml(event.data.filename)}...`,
+                        'executing'
+                    );
+                    break;
+                
+                case 'file_read_success':
+                    if (currentProgressIds.file) {
+                        removeProgressIndicator(currentProgressIds.file);
+                        currentProgressIds.file = null;
+                    }
+                    
+                    const fileReadDiv = document.createElement('div');
+                    fileReadDiv.className = 'file-write';
+                    fileReadDiv.style.background = '#1e3a8a';
+                    
+                    let readInfo = '';
+                    if (event.data.lines) {
+                        readInfo = ` (${event.data.lines} lines, ${event.data.size} bytes)`;
+                    } else if (event.data.lines_read) {
+                        readInfo = ` (lines ${event.data.start_line}-${event.data.end_line}, ${event.data.lines_read} lines read)`;
+                    }
+                    
+                    fileReadDiv.innerHTML = `
+                        <div class="file-header">📖 File read: ${escapeHtml(event.data.filename)}${readInfo}</div>
+                        <pre class="command-output">${escapeHtml(event.data.content)}</pre>
+                    `;
+                    chatContainer.appendChild(fileReadDiv);
+                    scrollToBottom();
+                    break;
+                
+                case 'file_read_error':
+                    if (currentProgressIds.file) {
+                        removeProgressIndicator(currentProgressIds.file);
+                        currentProgressIds.file = null;
+                    }
+                    
+                    const fileReadErrDiv = document.createElement('div');
+                    fileReadErrDiv.className = 'file-write';
+                    fileReadErrDiv.innerHTML = `
+                        <div class="file-header">❌ Error reading file: ${escapeHtml(event.data.filename)}</div>
+                        <div class="command-output command-error">${escapeHtml(event.data.error)}</div>
+                    `;
+                    chatContainer.appendChild(fileReadErrDiv);
                     scrollToBottom();
                     break;
                 
@@ -818,6 +946,272 @@
                         <div class="command-output command-error">${escapeHtml(event.data.error)}</div>
                     `;
                     chatContainer.appendChild(fileErrDiv);
+                    scrollToBottom();
+                    break;
+                
+                // List Directory
+                case 'list_directory_start':
+                    currentProgressIds.tool = addProgressIndicator(
+                        currentProgressIds.tool,
+                        '📁',
+                        `Listing directory: ${escapeHtml(event.data.path)}`,
+                        'executing'
+                    );
+                    break;
+                
+                case 'list_directory_success':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const listDirDiv = document.createElement('div');
+                    listDirDiv.className = 'command-result';
+                    listDirDiv.style.background = '#1e40af';
+                    listDirDiv.innerHTML = `
+                        <div class="command-header">📁 Directory: ${escapeHtml(event.data.path)} (${event.data.count} items)</div>
+                        <pre class="command-output">${escapeHtml(event.data.output)}</pre>
+                    `;
+                    chatContainer.appendChild(listDirDiv);
+                    scrollToBottom();
+                    break;
+                
+                case 'list_directory_error':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const listDirErrDiv = document.createElement('div');
+                    listDirErrDiv.className = 'command-result';
+                    listDirErrDiv.innerHTML = `
+                        <div class="command-header">❌ Error listing directory: ${escapeHtml(event.data.path)}</div>
+                        <pre class="command-output command-error">${escapeHtml(event.data.error)}</pre>
+                    `;
+                    chatContainer.appendChild(listDirErrDiv);
+                    scrollToBottom();
+                    break;
+                
+                // Get File Info
+                case 'get_file_info_start':
+                    currentProgressIds.tool = addProgressIndicator(
+                        currentProgressIds.tool,
+                        '📊',
+                        `Getting file info: ${escapeHtml(event.data.path)}`,
+                        'executing'
+                    );
+                    break;
+                
+                case 'get_file_info_success':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const fileInfoDiv = document.createElement('div');
+                    fileInfoDiv.className = 'command-result';
+                    fileInfoDiv.style.background = '#1e40af';
+                    fileInfoDiv.innerHTML = `
+                        <div class="command-header">📊 File Info: ${escapeHtml(event.data.path)}</div>
+                        <pre class="command-output">${escapeHtml(event.data.output)}</pre>
+                    `;
+                    chatContainer.appendChild(fileInfoDiv);
+                    scrollToBottom();
+                    break;
+                
+                case 'get_file_info_error':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const fileInfoErrDiv = document.createElement('div');
+                    fileInfoErrDiv.className = 'command-result';
+                    fileInfoErrDiv.innerHTML = `
+                        <div class="command-header">❌ Error getting file info: ${escapeHtml(event.data.path)}</div>
+                        <pre class="command-output command-error">${escapeHtml(event.data.error)}</pre>
+                    `;
+                    chatContainer.appendChild(fileInfoErrDiv);
+                    scrollToBottom();
+                    break;
+                
+                // Network Request
+                case 'network_request_start':
+                    currentProgressIds.tool = addProgressIndicator(
+                        currentProgressIds.tool,
+                        '🌐',
+                        `${event.data.method} ${escapeHtml(event.data.url)}`,
+                        'executing'
+                    );
+                    break;
+                
+                case 'network_request_success':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const netReqDiv = document.createElement('div');
+                    netReqDiv.className = 'command-result';
+                    netReqDiv.style.background = '#065f46';
+                    netReqDiv.innerHTML = `
+                        <div class="command-header">🌐 ${event.data.method} ${escapeHtml(event.data.url)} → ${event.data.status_code}</div>
+                        <pre class="command-output">${escapeHtml(event.data.output.substring(0, 5000))}${event.data.output.length > 5000 ? '\n\n... (truncated)' : ''}</pre>
+                    `;
+                    chatContainer.appendChild(netReqDiv);
+                    scrollToBottom();
+                    break;
+                
+                case 'network_request_error':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const netReqErrDiv = document.createElement('div');
+                    netReqErrDiv.className = 'command-result';
+                    netReqErrDiv.innerHTML = `
+                        <div class="command-header">❌ ${event.data.method} ${escapeHtml(event.data.url)}</div>
+                        <pre class="command-output command-error">${escapeHtml(event.data.error)}</pre>
+                    `;
+                    chatContainer.appendChild(netReqErrDiv);
+                    scrollToBottom();
+                    break;
+                
+                // Get Processes
+                case 'get_processes_start':
+                    currentProgressIds.tool = addProgressIndicator(
+                        currentProgressIds.tool,
+                        '⚙️',
+                        `Getting processes${event.data.filter ? ': ' + escapeHtml(event.data.filter) : ''}`,
+                        'executing'
+                    );
+                    break;
+                
+                case 'get_processes_success':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const procDiv = document.createElement('div');
+                    procDiv.className = 'command-result';
+                    procDiv.style.background = '#7c2d12';
+                    procDiv.innerHTML = `
+                        <div class="command-header">⚙️ Processes (${event.data.count} found)</div>
+                        <pre class="command-output">${escapeHtml(event.data.output)}</pre>
+                    `;
+                    chatContainer.appendChild(procDiv);
+                    scrollToBottom();
+                    break;
+                
+                case 'get_processes_error':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const procErrDiv = document.createElement('div');
+                    procErrDiv.className = 'command-result';
+                    procErrDiv.innerHTML = `
+                        <div class="command-header">❌ Error getting processes</div>
+                        <pre class="command-output command-error">${escapeHtml(event.data.error)}</pre>
+                    `;
+                    chatContainer.appendChild(procErrDiv);
+                    scrollToBottom();
+                    break;
+                
+                // Search Files
+                case 'search_files_start':
+                    currentProgressIds.tool = addProgressIndicator(
+                        currentProgressIds.tool,
+                        '🔍',
+                        `Searching: ${escapeHtml(event.data.pattern)} in ${escapeHtml(event.data.path)}`,
+                        'executing'
+                    );
+                    break;
+                
+                case 'search_files_success':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const searchDiv = document.createElement('div');
+                    searchDiv.className = 'command-result';
+                    searchDiv.style.background = '#581c87';
+                    searchDiv.innerHTML = `
+                        <div class="command-header">🔍 Search: ${escapeHtml(event.data.pattern)} (${event.data.count} matches)</div>
+                        <pre class="command-output">${escapeHtml(event.data.output)}</pre>
+                    `;
+                    chatContainer.appendChild(searchDiv);
+                    scrollToBottom();
+                    break;
+                
+                case 'search_files_error':
+                    if (currentProgressIds.tool) {
+                        removeProgressIndicator(currentProgressIds.tool);
+                        currentProgressIds.tool = null;
+                    }
+                    
+                    const searchErrDiv = document.createElement('div');
+                    searchErrDiv.className = 'command-result';
+                    searchErrDiv.innerHTML = `
+                        <div class="command-header">❌ Search error: ${escapeHtml(event.data.pattern)}</div>
+                        <pre class="command-output command-error">${escapeHtml(event.data.error)}</pre>
+                    `;
+                    chatContainer.appendChild(searchErrDiv);
+                    scrollToBottom();
+                    break;
+                
+                case 'usage_stats':
+                    const usageDiv = document.createElement('div');
+                    usageDiv.className = 'usage-stats';
+                    
+                    const contextInfo = event.data.context_info || {};
+                    const contextPercent = contextInfo.max_context_tokens ? 
+                        Math.round((contextInfo.estimated_context_tokens / contextInfo.max_context_tokens) * 100) : 0;
+                    
+                    usageDiv.innerHTML = `
+                        <div class="stat-group">
+                            <div class="stat">
+                                <div class="stat-label">Prompt</div>
+                                <div class="stat-value">${event.data.prompt_tokens.toLocaleString()}</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Completion</div>
+                                <div class="stat-value">${event.data.completion_tokens.toLocaleString()}</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Total</div>
+                                <div class="stat-value">${event.data.total_tokens.toLocaleString()}</div>
+                            </div>
+                        </div>
+                        <div class="stat-group">
+                            <div class="stat">
+                                <div class="stat-label">Context</div>
+                                <div class="stat-value">${contextPercent}% (${contextInfo.estimated_context_tokens || 0}/${contextInfo.max_context_tokens || 16384})</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-label">Messages</div>
+                                <div class="stat-value">${contextInfo.conversation_messages || 0}</div>
+                            </div>
+                        </div>
+                    `;
+                    chatContainer.appendChild(usageDiv);
+                    scrollToBottom();
+                    break;
+                
+                case 'tool_calls_planned':
+                    const toolCallsDiv = document.createElement('div');
+                    toolCallsDiv.className = 'tool-calls-info';
+                    toolCallsDiv.innerHTML = `
+                        <span>🔧 Planning ${event.data.count} tool call${event.data.count !== 1 ? 's' : ''}:</span>
+                        <div class="tools-list">
+                            ${event.data.tools.map(tool => `<span class="tool-badge">${escapeHtml(tool)}</span>`).join('')}
+                        </div>
+                    `;
+                    chatContainer.appendChild(toolCallsDiv);
                     scrollToBottom();
                     break;
                 
