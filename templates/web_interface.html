@@ -816,13 +816,14 @@
     <script>
         // Configure marked.js for security and features
         marked.setOptions({
-            breaks: true,        // Convert \n to <br>
+            breaks: true,
             gfm: true,          // GitHub Flavored Markdown
             headerIds: false,   // Disable header IDs for security
             mangle: false,      // Don't mangle email addresses
             sanitize: false,    // We'll handle escaping ourselves
             smartLists: true,   // Better list handling
-            smartypants: false  // No fancy quotes/dashes
+            smartypants: false, // No fancy quotes/dashes
+            pedantic: false     // Don't use original markdown.pl behavior
         });
         
         const chatContainer = document.getElementById('chatContainer');
@@ -1603,19 +1604,22 @@
                         currentProgressIds.thinking = null;
                     }
                     
-                    // Use tokens from event data if available, otherwise use accumulated tokens
-                    const tokensToDisplay = event.data.total_tokens ? {
-                        total: event.data.total_tokens,
-                        prompt: event.data.prompt_tokens,
-                        completion: event.data.completion_tokens
-                    } : currentTaskTokens;
+                    // ALWAYS use accumulated tokens (from all usage_stats events during this task)
+                    // The event.data tokens are only from the last LLM call, not the full conversation
+                    const tokensToDisplay = currentTaskTokens.total > 0 ? currentTaskTokens : {
+                        total: event.data.total_tokens || 0,
+                        prompt: event.data.prompt_tokens || 0,
+                        completion: event.data.completion_tokens || 0
+                    };
+                    
+                    const messageCount = currentContextInfo ? (currentContextInfo.conversation_messages || 0) : 0;
                     
                     const completeDiv = document.createElement('div');
                     completeDiv.className = 'task-complete';
                     completeDiv.innerHTML = `
                         <span style="font-size: 24px;">✅</span>
                         <span>${escapeHtml(event.data.message || 'Task completed successfully!')}</span>
-                        ${tokensToDisplay.total > 0 ? `<span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${tokensToDisplay.total.toLocaleString()} tokens • ${currentContextInfo ? currentContextInfo.conversation_messages || 0 : 0} messages</span>` : ''}
+                        <span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${tokensToDisplay.total.toLocaleString()} tokens • ${messageCount} message${messageCount !== 1 ? 's' : ''}</span>
                     `;
                     chatContainer.appendChild(completeDiv);
 

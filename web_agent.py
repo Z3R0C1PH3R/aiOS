@@ -1444,6 +1444,15 @@ Created: {info['created']}"""
         # Signal end of streaming for this response
         if response_message and not response_tool_calls:
             yield yield_event("ai_response_complete", {})
+            # Task is complete - no tool calls needed
+            yield yield_event("task_complete", {
+                "message": "Task completed",
+                "total_tokens": response_usage["total_tokens"] if response_usage else 0,
+                "prompt_tokens": response_usage["prompt_tokens"] if response_usage else 0,
+                "completion_tokens": response_usage["completion_tokens"] if response_usage else 0,
+                "iterations": 0
+            })
+            return  # Exit early - we're done
         
         # Process tool calls iteratively - LLM decides when to stop
         iteration = 0
