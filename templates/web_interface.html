@@ -1483,11 +1483,10 @@
                     
                     const toolCallsDiv = document.createElement('div');
                     toolCallsDiv.className = 'tool-calls-info';
+                    const toolsList = event.data.tools.map(tool => `<code style="background: rgba(251, 191, 36, 0.1); padding: 2px 6px; border-radius: 4px; font-size: 13px;">${escapeHtml(tool)}</code>`).join(' ');
                     toolCallsDiv.innerHTML = `
-                        <span>🔧 Executing ${event.data.count} tool call${event.data.count !== 1 ? 's' : ''}:</span>
-                        <div class="tools-list">
-                            ${event.data.tools.map(tool => `<span class="tool-badge">${escapeHtml(tool)}</span>`).join('')}
-                        </div>
+                        <span>🔧 Executing ${event.data.count} tool call${event.data.count !== 1 ? 's' : ''}</span>
+                        <span style="margin-left: 8px;">${toolsList}</span>
                     `;
                     chatContainer.appendChild(toolCallsDiv);
                     scrollToBottom();
@@ -1505,33 +1504,13 @@
                 
                 case 'context_summarized':
                     const summaryDiv = document.createElement('div');
-                    summaryDiv.className = 'usage-stats';
-                    summaryDiv.style.background = 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)';
+                    summaryDiv.className = 'task-complete';
+                    summaryDiv.style.background = 'rgba(124, 58, 237, 0.1)';
+                    summaryDiv.style.borderLeft = '3px solid #7c3aed';
                     summaryDiv.innerHTML = `
-                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
-                            <span style="font-size: 20px;">🔄</span>
-                            <span style="font-weight: 600;">Context Summarized</span>
-                        </div>
-                        <div class="stat-group">
-                            <div class="stat">
-                                <div class="stat-label">Messages Compressed</div>
-                                <div class="stat-value">${event.data.messages_summarized}</div>
-                            </div>
-                            <div class="stat">
-                                <div class="stat-label">Tokens Saved</div>
-                                <div class="stat-value">${event.data.tokens_saved.toLocaleString()}</div>
-                            </div>
-                        </div>
-                        <div class="stat-group">
-                            <div class="stat">
-                                <div class="stat-label">Before</div>
-                                <div class="stat-value">${event.data.tokens_before.toLocaleString()}</div>
-                            </div>
-                            <div class="stat">
-                                <div class="stat-label">After</div>
-                                <div class="stat-value">${event.data.tokens_after.toLocaleString()}</div>
-                            </div>
-                        </div>
+                        <span style="font-size: 20px;">🔄</span>
+                        <span>Context summarized</span>
+                        <span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${event.data.messages_summarized} messages compressed • ${event.data.tokens_saved.toLocaleString()} tokens saved</span>
                     `;
                     chatContainer.appendChild(summaryDiv);
                     scrollToBottom();
@@ -1544,50 +1523,22 @@
                         currentProgressIds.thinking = null;
                     }
                     
+                    // Use tokens from event data if available, otherwise use accumulated tokens
+                    const tokensToDisplay = event.data.total_tokens ? {
+                        total: event.data.total_tokens,
+                        prompt: event.data.prompt_tokens,
+                        completion: event.data.completion_tokens
+                    } : currentTaskTokens;
+                    
                     const completeDiv = document.createElement('div');
                     completeDiv.className = 'task-complete';
                     completeDiv.innerHTML = `
                         <span style="font-size: 24px;">✅</span>
                         <span>${escapeHtml(event.data.message || 'Task completed successfully!')}</span>
+                        ${tokensToDisplay.total > 0 ? `<span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${tokensToDisplay.total.toLocaleString()} tokens • ${currentContextInfo ? currentContextInfo.conversation_messages || 0 : 0} messages</span>` : ''}
                     `;
                     chatContainer.appendChild(completeDiv);
-                    
-                    // Display token usage for the entire task
-                    if (currentTaskTokens.total > 0) {
-                        const usageDiv = document.createElement('div');
-                        usageDiv.className = 'usage-stats';
-                        
-                        const contextPercent = currentContextInfo && currentContextInfo.max_context_tokens ? 
-                            Math.round((currentContextInfo.estimated_context_tokens / currentContextInfo.max_context_tokens) * 100) : 0;
-                        
-                        usageDiv.innerHTML = `
-                            <div class="stat-group">
-                                <div class="stat">
-                                    <div class="stat-label">Total Tokens Used</div>
-                                    <div class="stat-value">${currentTaskTokens.total.toLocaleString()}</div>
-                                </div>
-                                <div class="stat">
-                                    <div class="stat-label">Prompt</div>
-                                    <div class="stat-value">${currentTaskTokens.prompt.toLocaleString()}</div>
-                                </div>
-                                <div class="stat">
-                                    <div class="stat-label">Completion</div>
-                                    <div class="stat-value">${currentTaskTokens.completion.toLocaleString()}</div>
-                                </div>
-                            </div>
-                            <div class="stat-group">
-                                <div class="stat">
-                                    <div class="stat-label">Final Context</div>
-                                    <div class="stat-value">${contextPercent}% (${currentContextInfo ? currentContextInfo.estimated_context_tokens || 0 : 0}/${currentContextInfo ? currentContextInfo.max_context_tokens || 16384 : 16384})</div>
-                                </div>
-                                <div class="stat">
-                                    <div class="stat-label">Messages</div>
-                                    <div class="stat-value">${currentContextInfo ? currentContextInfo.conversation_messages || 0 : 0}</div>
-                                </div>
-                            </div>
-                        `;
-                        chatContainer.appendChild(usageDiv);
-                    }
+
                     
                     // Reset token tracking for next task
                     currentTaskTokens = { prompt: 0, completion: 0, total: 0 };
@@ -1605,7 +1556,8 @@
                     
                     const stoppedDiv = document.createElement('div');
                     stoppedDiv.className = 'task-complete';
-                    stoppedDiv.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+                    stoppedDiv.style.background = 'rgba(245, 158, 11, 0.1)';
+                    stoppedDiv.style.borderLeft = '3px solid #f59e0b';
                     stoppedDiv.innerHTML = `
                         <span style="font-size: 24px;">⏹️</span>
                         <span>${escapeHtml(event.data.message || 'Processing stopped by user')}</span>
