@@ -740,7 +740,6 @@ Provide a brief summary (2-3 sentences):"""
                             
                             # Handle tool calls
                             if "tool_calls" in delta:
-                                logger.info(f"Tool calls in delta: {delta['tool_calls']}")
                                 for tool_call_delta in delta["tool_calls"]:
                                     idx = tool_call_delta.get("index", 0)
                                     
@@ -761,7 +760,6 @@ Provide a brief summary (2-3 sentences):"""
                                         func_delta = tool_call_delta["function"]
                                         if "name" in func_delta:
                                             tool_calls_dict[idx]["function"]["name"] = func_delta["name"]
-                                            logger.info(f"Emitting tool_call_start: {func_delta['name']}")
                                             # Emit tool call name as soon as we get it
                                             yield {
                                                 "type": "tool_call_start",
@@ -1388,7 +1386,6 @@ Created: {info['created']}"""
             
             elif chunk["type"] == "tool_call_start":
                 # Forward tool call start to frontend
-                logger.info(f"Forwarding tool_call_start to frontend: {chunk['data']['name']}")
                 yield yield_event("tool_call_start", {
                     "index": chunk["data"]["index"],
                     "name": chunk["data"]["name"]
@@ -1396,7 +1393,6 @@ Created: {info['created']}"""
             
             elif chunk["type"] == "tool_call_arguments":
                 # Forward tool call arguments to frontend
-                logger.info(f"Forwarding tool_call_arguments to frontend: index={chunk['data']['index']}")
                 yield yield_event("tool_call_arguments", {
                     "index": chunk["data"]["index"],
                     "arguments_chunk": chunk["data"]["arguments_chunk"]
