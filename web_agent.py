@@ -357,18 +357,13 @@ FILE OPERATIONS:
    - Replaces ALL occurrences
    - Use for: changing values, updating text
 
-**IMPORTANT FILE SIZE RULES:**
-- ❌ NEVER create files larger than 500 lines in one go
-- ❌ NEVER write massive code blocks that would exceed token limits
-- ✅ For large files (>500 lines):
-  1. Create the file structure/skeleton first (write)
-  2. Add sections incrementally using insert or append
-  3. Tell the user "File created in parts due to size"
-- ✅ For config files, HTML, or data files:
-  1. Create the base file with minimal content
-  2. Add sections using append or insert operations
-  3. Example: Create HTML with just <html><body></body></html>, then append sections
-- ✅ If user asks for a large codebase, create multiple smaller files instead
+**FILE SIZE GUIDELINES:**
+- ✅ Feel free to create files up to ~500 lines
+- ✅ For larger files (500-1000 lines), consider if splitting makes sense
+- ⚠️ For very large files (>1000 lines):
+  1. Create the main structure first (write)
+  2. Add remaining sections using append or insert
+  3. Or split into multiple logical files
 
 SYSTEM OPERATIONS:
 5. list_directory(path?, show_hidden?, recursive?): List directory contents
@@ -728,6 +723,10 @@ Provide a brief summary (2-3 sentences):"""
                     # Overwrite entire file
                     content = arguments.get("content", "")
                     
+                    # If content is a dict/list, convert to JSON string
+                    if isinstance(content, (dict, list)):
+                        content = json.dumps(content, indent=2)
+                    
                     # Clean content (remove markdown code blocks if present)
                     cleaned_content = content.strip()
                     if cleaned_content.startswith('```'):
@@ -759,6 +758,10 @@ Provide a brief summary (2-3 sentences):"""
                     # Append to end of file
                     content = arguments.get("content", "")
                     
+                    # If content is a dict/list, convert to JSON string
+                    if isinstance(content, (dict, list)):
+                        content = json.dumps(content, indent=2)
+                    
                     # Create directory if needed
                     dir_path = os.path.dirname(filename)
                     if dir_path:
@@ -780,6 +783,10 @@ Provide a brief summary (2-3 sentences):"""
                     # Insert at specific line
                     content = arguments.get("content", "")
                     line_number = arguments.get("line_number", 1)
+                    
+                    # If content is a dict/list, convert to JSON string
+                    if isinstance(content, (dict, list)):
+                        content = json.dumps(content, indent=2)
                     
                     # Read existing content
                     try:
