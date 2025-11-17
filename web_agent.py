@@ -650,6 +650,162 @@ Provide a brief summary (2-3 sentences):"""
         except Exception as e:
             return {"success": False, "error": f"Error querying LLM: {e}"}
     
+    def query_llm_streaming(self, prompt: str, use_tools: bool = True):
+        """Query LM Studio API with streaming support - yields chunks as they arrive"""
+        try:
+            # Check if we need to summarize
+            summarization_info = None
+            current_tokens = self.get_conversation_tokens()
+            if current_tokens > TARGET_CONTEXT_TOKENS:
+                summarization_info = self.summarize_context()
+            
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                *self.conversation_history,
+                {"role": "user", "content": prompt}
+            ]
+            
+            payload = {
+                "model": MODEL_NAME,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 4096,
+                "stream": True  # Enable streaming!
+            }
+            
+            if use_tools:
+                payload["tools"] = self.tools
+            
+            response = self.session.post(
+                f"{self.lm_studio_url}/v1/chat/completions",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                stream=True
+            )
+            
+            if response.status_code == 200:
+                accumulated_content = ""
+                tool_calls_dict = {}  # Store tool calls by index
+                usage_info = None
+                finish_reason = None
+                
+                # Store user message
+                self.conversation_history.append({"role": "user", "content": prompt})
+                
+                # Yield summarization if it happened
+                if summarization_info:
+                    yield {
+                        "type": "summarization",
+                        "data": summarization_info
+                    }
+                
+                # Process streaming response
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    
+                    line = line.decode('utf-8')
+                    if line.startswith('data: '):
+                        data = line[6:]  # Remove 'data: ' prefix
+                        
+                        if data == '[DONE]':
+                            break
+                        
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk["choices"][0].get("delta", {})
+                            
+                            # Accumulate content
+                            if "content" in delta and delta["content"]:
+                                content_chunk = delta["content"]
+                                accumulated_content += content_chunk
+                                yield {
+                                    "type": "content_chunk",
+                                    "data": {"chunk": content_chunk}
+                                }
+                            
+                            # Handle tool calls
+                            if "tool_calls" in delta:
+                                for tool_call_delta in delta["tool_calls"]:
+                                    idx = tool_call_delta.get("index", 0)
+                                    
+                                    if idx not in tool_calls_dict:
+                                        tool_calls_dict[idx] = {
+                                            "id": tool_call_delta.get("id", ""),
+                                            "type": tool_call_delta.get("type", "function"),
+                                            "function": {
+                                                "name": "",
+                                                "arguments": ""
+                                            }
+                                        }
+                                    
+                                    if "id" in tool_call_delta:
+                                        tool_calls_dict[idx]["id"] = tool_call_delta["id"]
+                                    
+                                    if "function" in tool_call_delta:
+                                        func_delta = tool_call_delta["function"]
+                                        if "name" in func_delta:
+                                            tool_calls_dict[idx]["function"]["name"] = func_delta["name"]
+                                        if "arguments" in func_delta:
+                                            tool_calls_dict[idx]["function"]["arguments"] += func_delta["arguments"]
+                            
+                            # Capture finish reason
+                            if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"]:
+                                finish_reason = chunk["choices"][0]["finish_reason"]
+                            
+                            # Capture usage if available
+                            if "usage" in chunk:
+                                usage_info = chunk["usage"]
+                        
+                        except json.JSONDecodeError:
+                            continue
+                
+                # Convert tool_calls_dict to list
+                tool_calls = [tool_calls_dict[i] for i in sorted(tool_calls_dict.keys())] if tool_calls_dict else []
+                
+                # Store assistant response in conversation history
+                if tool_calls:
+                    self.conversation_history.append({
+                        "role": "assistant",
+                        "tool_calls": tool_calls,
+                        "content": accumulated_content or ""
+                    })
+                else:
+                    self.conversation_history.append({
+                        "role": "assistant",
+                        "content": accumulated_content
+                    })
+                
+                # Yield final metadata
+                yield {
+                    "type": "complete",
+                    "data": {
+                        "message": accumulated_content,
+                        "tool_calls": tool_calls,
+                        "finish_reason": finish_reason,
+                        "usage": {
+                            "prompt_tokens": usage_info.get("prompt_tokens", 0) if usage_info else 0,
+                            "completion_tokens": usage_info.get("completion_tokens", 0) if usage_info else 0,
+                            "total_tokens": usage_info.get("total_tokens", 0) if usage_info else 0
+                        },
+                        "context_info": {
+                            "conversation_messages": len(self.conversation_history),
+                            "estimated_context_tokens": self.get_conversation_tokens(),
+                            "max_context_tokens": MAX_CONTEXT_TOKENS
+                        }
+                    }
+                }
+            else:
+                yield {
+                    "type": "error",
+                    "data": {"error": f"LM Studio API error: {response.status_code} - {response.text}"}
+                }
+                
+        except requests.exceptions.RequestException as e:
+            yield {"type": "error", "data": {"error": f"Connection error to LM Studio: {e}"}}
+        except Exception as e:
+            yield {"type": "error", "data": {"error": f"Error querying LLM: {e}"}}
+    
     def execute_tool(self, tool_name: str, arguments: dict) -> dict:
         """Execute a tool call"""
         try:
@@ -1166,47 +1322,69 @@ Created: {info['created']}"""
             self.stop_requested = False
             return
         
-        # Initial AI query
+        # Initial AI query with streaming
         yield yield_event("ai_thinking", {})
-        response = self.query_llm(user_input, use_tools=True)
         
-        if not response["success"]:
-            yield yield_event("error", {"message": response.get("error", "Unknown error")})
-            return
+        response_message = ""
+        response_tool_calls = []
+        response_usage = None
+        response_context_info = None
         
-        # Emit summarization event if context was summarized
-        if response.get("summarization"):
-            yield yield_event("context_summarized", {
-                "tokens_before": response["summarization"]["tokens_before"],
-                "tokens_after": response["summarization"]["tokens_after"],
-                "tokens_saved": response["summarization"]["tokens_saved"],
-                "messages_summarized": response["summarization"]["messages_summarized"]
-            })
+        # Stream the LLM response
+        for chunk in self.query_llm_streaming(user_input, use_tools=True):
+            # Check stop during streaming
+            if self.stop_requested:
+                yield yield_event("task_stopped", {"message": "Processing stopped by user"})
+                self.stop_requested = False
+                return
+            
+            if chunk["type"] == "summarization":
+                yield yield_event("context_summarized", {
+                    "tokens_before": chunk["data"]["tokens_before"],
+                    "tokens_after": chunk["data"]["tokens_after"],
+                    "tokens_saved": chunk["data"]["tokens_saved"],
+                    "messages_summarized": chunk["data"]["messages_summarized"]
+                })
+            
+            elif chunk["type"] == "content_chunk":
+                # Stream the text as it arrives
+                yield yield_event("ai_response_chunk", {"chunk": chunk["data"]["chunk"]})
+                response_message += chunk["data"]["chunk"]
+            
+            elif chunk["type"] == "complete":
+                response_message = chunk["data"]["message"]
+                response_tool_calls = chunk["data"]["tool_calls"]
+                response_usage = chunk["data"]["usage"]
+                response_context_info = chunk["data"]["context_info"]
+                
+                # Emit usage stats
+                yield yield_event("usage_stats", {
+                    "prompt_tokens": response_usage["prompt_tokens"],
+                    "completion_tokens": response_usage["completion_tokens"],
+                    "total_tokens": response_usage["total_tokens"],
+                    "context_info": response_context_info
+                })
+                
+                # Emit tool calls info if any
+                if response_tool_calls:
+                    tool_names = [tc["function"]["name"] for tc in response_tool_calls]
+                    yield yield_event("tool_calls_planned", {
+                        "count": len(response_tool_calls),
+                        "tools": tool_names
+                    })
+            
+            elif chunk["type"] == "error":
+                yield yield_event("error", {"message": chunk["data"]["error"]})
+                return
         
-        # Emit usage stats
-        if response.get("usage"):
-            yield yield_event("usage_stats", {
-                "prompt_tokens": response["usage"]["prompt_tokens"],
-                "completion_tokens": response["usage"]["completion_tokens"],
-                "total_tokens": response["usage"]["total_tokens"],
-                "context_info": response.get("context_info", {})
-            })
-        
-        # Emit tool calls info if any
-        if response.get("tool_calls"):
-            tool_names = [tc["function"]["name"] for tc in response["tool_calls"]]
-            yield yield_event("tool_calls_planned", {
-                "count": len(response["tool_calls"]),
-                "tools": tool_names
-            })
-        
-        if response["message"]:
-            yield yield_event("ai_response", {"message": response["message"]})
+        # Signal end of streaming for this response
+        if response_message and not response_tool_calls:
+            yield yield_event("ai_response_complete", {})
         
         # Process tool calls iteratively - LLM decides when to stop
         iteration = 0
         
-        while response.get("tool_calls"):
+        while response_tool_calls:
             iteration += 1
             
             # Check stop again
@@ -1215,7 +1393,7 @@ Created: {info['created']}"""
                 self.stop_requested = False
                 return
             
-            for tool_call in response["tool_calls"]:
+            for tool_call in response_tool_calls:
                 tool_name = tool_call["function"]["name"]
                 try:
                     arguments = json.loads(tool_call["function"]["arguments"])
@@ -1392,31 +1570,58 @@ Created: {info['created']}"""
                     "content": json.dumps(result)
                 })
             
-            # Get next AI response
+            # Get next AI response with streaming
             yield yield_event("ai_thinking", {})
-            response = self.query_llm("", use_tools=True)
             
-            # Emit usage stats
-            if response.get("usage"):
-                yield yield_event("usage_stats", {
-                    "prompt_tokens": response["usage"]["prompt_tokens"],
-                    "completion_tokens": response["usage"]["completion_tokens"],
-                    "total_tokens": response["usage"]["total_tokens"],
-                    "context_info": response.get("context_info", {})
-                })
+            response_message = ""
+            response_tool_calls = []
+            response_usage = None
+            response_context_info = None
             
-            # Emit tool calls info if any
-            if response.get("tool_calls"):
-                tool_names = [tc["function"]["name"] for tc in response["tool_calls"]]
-                yield yield_event("tool_calls_planned", {
-                    "count": len(response["tool_calls"]),
-                    "tools": tool_names
-                })
+            # Stream the next LLM response
+            for chunk in self.query_llm_streaming("", use_tools=True):
+                # Check stop during streaming
+                if self.stop_requested:
+                    yield yield_event("task_stopped", {"message": "Processing stopped by user"})
+                    self.stop_requested = False
+                    return
+                
+                if chunk["type"] == "content_chunk":
+                    yield yield_event("ai_response_chunk", {"chunk": chunk["data"]["chunk"]})
+                    response_message += chunk["data"]["chunk"]
+                
+                elif chunk["type"] == "complete":
+                    response_message = chunk["data"]["message"]
+                    response_tool_calls = chunk["data"]["tool_calls"]
+                    response_usage = chunk["data"]["usage"]
+                    response_context_info = chunk["data"]["context_info"]
+                    
+                    # Emit usage stats
+                    yield yield_event("usage_stats", {
+                        "prompt_tokens": response_usage["prompt_tokens"],
+                        "completion_tokens": response_usage["completion_tokens"],
+                        "total_tokens": response_usage["total_tokens"],
+                        "context_info": response_context_info
+                    })
+                    
+                    # Emit tool calls info if any
+                    if response_tool_calls:
+                        tool_names = [tc["function"]["name"] for tc in response_tool_calls]
+                        yield yield_event("tool_calls_planned", {
+                            "count": len(response_tool_calls),
+                            "tools": tool_names
+                        })
+                
+                elif chunk["type"] == "error":
+                    yield yield_event("error", {"message": chunk["data"]["error"]})
+                    return
             
-            if response.get("message"):
-                yield yield_event("ai_response", {"message": response["message"]})
+            # Signal end of streaming for this response
+            if response_message and not response_tool_calls:
+                yield yield_event("ai_response_complete", {})
             
-            if not response.get("tool_calls"):
+            # If no more tool calls, we're done
+            if not response_tool_calls:
                 yield yield_event("task_complete", {"message": "Task completed"})
                 break
 

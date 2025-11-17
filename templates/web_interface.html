@@ -742,6 +742,9 @@
         // Store current stream reader for force stop
         let currentStreamReader = null;
         let currentStreamController = null;
+        
+        // Track current AI message being streamed
+        let currentAIMessageElement = null;
 
         function processEvent(event) {
             // Process single event in real-time
@@ -758,16 +761,52 @@
                             'thinking'
                         );
                     }
+                    // Reset current message element for new streaming
+                    currentAIMessageElement = null;
                     break;
                 
-                case 'ai_response':
+                case 'ai_response_chunk':
+                    // Remove thinking indicator on first chunk
                     if (currentProgressIds.thinking) {
                         removeProgressIndicator(currentProgressIds.thinking);
                         currentProgressIds.thinking = null;
                     }
-                    // Escape HTML but preserve newlines
+                    
+                    // Create or update AI message element
+                    if (!currentAIMessageElement) {
+                        const messageDiv = document.createElement('div');
+                        messageDiv.className = 'message ai-message';
+                        messageDiv.innerHTML = `
+                            <div class="message-header">
+                                <span class="message-icon">🤖</span>
+                                <span>ArchAgent</span>
+                            </div>
+                            <div class="message-content"></div>
+                        `;
+                        chatContainer.appendChild(messageDiv);
+                        currentAIMessageElement = messageDiv.querySelector('.message-content');
+                    }
+                    
+                    // Append the chunk (escape HTML)
+                    const currentText = currentAIMessageElement.textContent || '';
+                    currentAIMessageElement.textContent = currentText + event.data.chunk;
+                    scrollToBottom();
+                    break;
+                
+                case 'ai_response_complete':
+                    // Mark streaming as complete
+                    currentAIMessageElement = null;
+                    break;
+                
+                case 'ai_response':
+                    // Fallback for non-streamed responses (shouldn't happen now)
+                    if (currentProgressIds.thinking) {
+                        removeProgressIndicator(currentProgressIds.thinking);
+                        currentProgressIds.thinking = null;
+                    }
                     const escapedMessage = escapeHtml(event.data.message);
                     addMessage('ai', escapedMessage);
+                    currentAIMessageElement = null;
                     break;
                 
                 case 'command_start':
