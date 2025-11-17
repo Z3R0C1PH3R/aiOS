@@ -1471,13 +1471,19 @@
                 
                 case 'tool_calls_planned':
                     // Transform tool call planning indicators into permanent badges instead of removing
+                    console.log('TOOL_CALLS_PLANNED HANDLER:', event.data);
+                    console.log('Current toolCall IDs:', currentProgressIds.toolCall);
                     if (currentProgressIds.toolCall) {
                         for (const idx in currentProgressIds.toolCall) {
-                            const progressItem = document.getElementById(currentProgressIds.toolCall[idx]);
+                            const progressId = currentProgressIds.toolCall[idx];
+                            console.log(`Looking for progress item with id: progress-${progressId}`);
+                            const progressItem = document.getElementById(`progress-${progressId}`);
+                            console.log('Found progress item:', progressItem);
                             if (progressItem) {
                                 // Change appearance to "planned" state
                                 progressItem.style.opacity = '0.7';
                                 progressItem.style.borderLeftColor = '#10b981';
+                                console.log('Updated progress item appearance');
                             }
                         }
                     }
