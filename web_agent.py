@@ -1352,11 +1352,8 @@ Created: {info['created']}"""
             }
             return f"data: {json.dumps(event)}\n\n"
         
-        # Check if stop was requested
-        if self.stop_requested:
-            yield yield_event("task_stopped", {"message": "Processing stopped by user"})
-            self.stop_requested = False
-            return
+        # Reset stop flag at start of new request
+        self.stop_requested = False
         
         # Initial AI query with streaming
         yield yield_event("ai_thinking", {})
