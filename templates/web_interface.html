@@ -190,18 +190,23 @@
         }
 
         .message-content p {
-            margin: 10px 0;
-            line-height: 1.8;
+            margin: 8px 0;
+            line-height: 1.6;
         }
 
         .message-content ul, .message-content ol {
-            margin: 12px 0;
+            margin: 8px 0;
             padding-left: 28px;
         }
 
         .message-content li {
-            margin: 6px 0;
-            line-height: 1.6;
+            margin: 2px 0;
+            line-height: 1.5;
+        }
+
+        .message-content li p {
+            margin: 0;
+            display: inline;
         }
 
         .message-content code {
@@ -533,6 +538,48 @@
             border-top: 1px solid rgba(100, 116, 139, 0.3);
             display: flex;
             gap: 16px;
+            position: relative; /* For overlay positioning */
+        }
+
+        .input-status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #1e293b;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            z-index: 10;
+            padding: 24px 36px;
+            border-top: 1px solid rgba(100, 116, 139, 0.3);
+        }
+
+        .input-status-overlay.active {
+            display: flex;
+        }
+
+        .input-status-overlay .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(102, 126, 234, 0.2);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        #inputStatusText {
+            color: #94a3b8;
+            font-size: 15px;
+        }
+
+        .task-stats {
+            font-size: 13px;
+            color: #64748b;
+            padding: 8px 0;
+            margin-top: 4px;
         }
 
         .input-wrapper {
@@ -734,6 +781,10 @@
         </div>
 
         <div class="input-container">
+            <div class="input-status-overlay" id="inputStatusOverlay">
+                <div class="spinner"></div>
+                <span id="inputStatusText">AI is thinking...</span>
+            </div>
             <div class="input-wrapper">
                 <textarea 
                     id="userInput" 
@@ -858,6 +909,35 @@
         function removeThinking() {
             const thinking = document.getElementById('thinking');
             if (thinking) thinking.remove();
+        }
+
+        // Input status overlay functions
+        function showInputStatus(text) {
+            const overlay = document.getElementById('inputStatusOverlay');
+            const statusText = document.getElementById('inputStatusText');
+            const userInput = document.getElementById('userInput');
+            
+            statusText.textContent = text;
+            overlay.classList.add('active');
+            userInput.disabled = true;
+        }
+
+        function hideInputStatus() {
+            const overlay = document.getElementById('inputStatusOverlay');
+            const userInput = document.getElementById('userInput');
+            
+            overlay.classList.remove('active');
+            userInput.disabled = false;
+        }
+
+        function addTaskStats(tokens, messages) {
+            if (tokens === 0 && messages === 0) return; // Don't show if no data
+            
+            const statsDiv = document.createElement('div');
+            statsDiv.className = 'task-stats';
+            statsDiv.innerHTML = `📊 ${tokens.toLocaleString()} tokens • ${messages} message${messages !== 1 ? 's' : ''}`;
+            chatContainer.appendChild(statsDiv);
+            scrollToBottom();
         }
 
         // Add progress indicator
