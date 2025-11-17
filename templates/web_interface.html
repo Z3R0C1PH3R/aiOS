@@ -728,6 +728,7 @@
             file: null,
             bg: null,
             tool: null,
+            toolCall: {},  // Dictionary to track multiple tool call planning indicators
             thinking: null
         };
         
@@ -796,6 +797,40 @@
                 case 'ai_response_complete':
                     // Mark streaming as complete
                     currentAIMessageElement = null;
+                    break;
+                
+                case 'tool_call_start':
+                    // AI is starting to call a tool - show the name
+                    if (!currentProgressIds.toolCall) {
+                        currentProgressIds.toolCall = {};
+                    }
+                    currentProgressIds.toolCall[event.data.index] = `tool-call-${++eventCounter}`;
+                    addProgressIndicator(
+                        currentProgressIds.toolCall[event.data.index],
+                        '🔧',
+                        `Planning: ${event.data.name}()`,
+                        'executing'
+                    );
+                    break;
+                
+                case 'tool_call_arguments':
+                    // Stream the arguments as they arrive
+                    if (currentProgressIds.toolCall && currentProgressIds.toolCall[event.data.index]) {
+                        const progressItem = document.getElementById(currentProgressIds.toolCall[event.data.index]);
+                        if (progressItem) {
+                            const textSpan = progressItem.querySelector('.progress-text');
+                            if (textSpan) {
+                                // Append arguments chunk (truncate if too long)
+                                let currentText = textSpan.textContent;
+                                const toolName = currentText.split('(')[0].replace('Planning: ', '').trim();
+                                const existingArgs = currentText.includes('(') ? 
+                                    currentText.split('(')[1].replace('...)', '').replace(')', '') : '';
+                                const newArgs = existingArgs + event.data.arguments_chunk;
+                                const displayArgs = newArgs.length > 80 ? newArgs.substring(0, 80) + '...' : newArgs;
+                                textSpan.textContent = `Planning: ${toolName}(${displayArgs})`;
+                            }
+                        }
+                    }
                     break;
                 
                 case 'ai_response':
@@ -936,8 +971,11 @@
                     break;
                 
                 case 'file_read_start':
-                    currentProgressIds.file = addProgressIndicator(
-                        `📖 Reading ${escapeHtml(event.data.filename)}...`,
+                    currentProgressIds.file = `file-read-${++eventCounter}`;
+                    addProgressIndicator(
+                        currentProgressIds.file,
+                        '📖',
+                        `Reading: ${event.data.filename}`,
                         'executing'
                     );
                     break;
@@ -1019,10 +1057,11 @@
                 
                 // List Directory
                 case 'list_directory_start':
-                    currentProgressIds.tool = addProgressIndicator(
+                    currentProgressIds.tool = `tool-${++eventCounter}`;
+                    addProgressIndicator(
                         currentProgressIds.tool,
                         '📁',
-                        `Listing directory: ${escapeHtml(event.data.path)}`,
+                        `Listing directory: ${event.data.path}`,
                         'executing'
                     );
                     break;
@@ -1062,10 +1101,11 @@
                 
                 // Get File Info
                 case 'get_file_info_start':
-                    currentProgressIds.tool = addProgressIndicator(
+                    currentProgressIds.tool = `tool-${++eventCounter}`;
+                    addProgressIndicator(
                         currentProgressIds.tool,
                         '📊',
-                        `Getting file info: ${escapeHtml(event.data.path)}`,
+                        `Getting file info: ${event.data.path}`,
                         'executing'
                     );
                     break;
@@ -1105,10 +1145,11 @@
                 
                 // Network Request
                 case 'network_request_start':
-                    currentProgressIds.tool = addProgressIndicator(
+                    currentProgressIds.tool = `tool-${++eventCounter}`;
+                    addProgressIndicator(
                         currentProgressIds.tool,
                         '🌐',
-                        `${event.data.method} ${escapeHtml(event.data.url)}`,
+                        `${event.data.method} ${event.data.url}`,
                         'executing'
                     );
                     break;
@@ -1148,10 +1189,11 @@
                 
                 // Get Processes
                 case 'get_processes_start':
-                    currentProgressIds.tool = addProgressIndicator(
+                    currentProgressIds.tool = `tool-${++eventCounter}`;
+                    addProgressIndicator(
                         currentProgressIds.tool,
                         '⚙️',
-                        `Getting processes${event.data.filter ? ': ' + escapeHtml(event.data.filter) : ''}`,
+                        `Getting processes${event.data.filter ? ': ' + event.data.filter : ''}`,
                         'executing'
                     );
                     break;
@@ -1191,10 +1233,11 @@
                 
                 // Search Files
                 case 'search_files_start':
-                    currentProgressIds.tool = addProgressIndicator(
+                    currentProgressIds.tool = `tool-${++eventCounter}`;
+                    addProgressIndicator(
                         currentProgressIds.tool,
                         '🔍',
-                        `Searching: ${escapeHtml(event.data.pattern)} in ${escapeHtml(event.data.path)}`,
+                        `Searching: ${event.data.pattern} in ${event.data.path}`,
                         'executing'
                     );
                     break;
@@ -1247,10 +1290,18 @@
                     break;
                 
                 case 'tool_calls_planned':
+                    // Clear all tool call planning indicators
+                    if (currentProgressIds.toolCall) {
+                        for (const idx in currentProgressIds.toolCall) {
+                            removeProgressIndicator(currentProgressIds.toolCall[idx]);
+                        }
+                        currentProgressIds.toolCall = {};
+                    }
+                    
                     const toolCallsDiv = document.createElement('div');
                     toolCallsDiv.className = 'tool-calls-info';
                     toolCallsDiv.innerHTML = `
-                        <span>🔧 Planning ${event.data.count} tool call${event.data.count !== 1 ? 's' : ''}:</span>
+                        <span>🔧 Executing ${event.data.count} tool call${event.data.count !== 1 ? 's' : ''}:</span>
                         <div class="tools-list">
                             ${event.data.tools.map(tool => `<span class="tool-badge">${escapeHtml(tool)}</span>`).join('')}
                         </div>
@@ -1484,20 +1535,45 @@
 
         // Stop AI processing
         async function stopProcessing() {
+            // Guard against double-clicks
+            if (!isProcessing && !currentStreamReader) {
+                console.log('Nothing to stop');
+                return;
+            }
+            
+            // Immediately update UI - don't wait for anything
+            stopBtn.disabled = true;  // Prevent double-clicks
+            
             try {
                 // Abort the stream immediately
                 if (currentStreamReader) {
-                    await currentStreamReader.cancel();
+                    try {
+                        await currentStreamReader.cancel();
+                    } catch (e) {
+                        console.log('Stream already closed:', e);
+                    }
                     currentStreamReader = null;
                 }
                 
                 // Tell backend to stop (for context preservation)
-                await fetch('/api/stop', { method: 'POST' });
+                try {
+                    await fetch('/api/stop', { method: 'POST' });
+                } catch (e) {
+                    console.log('Backend stop error:', e);
+                }
                 
-                // Remove any thinking indicator
+                // Remove any progress indicators
                 if (currentProgressIds.thinking) {
                     removeProgressIndicator(currentProgressIds.thinking);
                     currentProgressIds.thinking = null;
+                }
+                
+                // Clear tool call planning indicators
+                if (currentProgressIds.toolCall) {
+                    for (const idx in currentProgressIds.toolCall) {
+                        removeProgressIndicator(currentProgressIds.toolCall[idx]);
+                    }
+                    currentProgressIds.toolCall = {};
                 }
                 
                 // Show stop message
@@ -1516,6 +1592,7 @@
                 sendBtn.disabled = false;
                 sendBtn.style.display = 'flex';
                 stopBtn.style.display = 'none';
+                stopBtn.disabled = false;  // Re-enable for next time
             } catch (error) {
                 console.error('Error stopping:', error);
             }

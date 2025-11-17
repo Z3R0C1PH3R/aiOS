@@ -53,6 +53,7 @@ class OSAgent:
         self.conversation_history = []
         self.system_prompt = self._build_system_prompt()
         self.stop_requested = False
+        self.current_request = None  # Store active LM Studio request
         self.tools = self._define_tools()
     
     def _format_size(self, size_bytes: int) -> str:
@@ -676,12 +677,14 @@ Provide a brief summary (2-3 sentences):"""
             if use_tools:
                 payload["tools"] = self.tools
             
-            response = self.session.post(
+            # Store the response object so we can close it on stop
+            self.current_request = self.session.post(
                 f"{self.lm_studio_url}/v1/chat/completions",
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 stream=True
             )
+            response = self.current_request
             
             if response.status_code == 200:
                 accumulated_content = ""
@@ -701,6 +704,17 @@ Provide a brief summary (2-3 sentences):"""
                 
                 # Process streaming response
                 for line in response.iter_lines():
+                    # Check if stop was requested
+                    if self.stop_requested:
+                        logger.info("Stop requested - closing LM Studio connection")
+                        response.close()
+                        self.current_request = None
+                        yield {
+                            "type": "error",
+                            "data": {"error": "Stopped by user"}
+                        }
+                        return
+                    
                     if not line:
                         continue
                     
@@ -746,8 +760,24 @@ Provide a brief summary (2-3 sentences):"""
                                         func_delta = tool_call_delta["function"]
                                         if "name" in func_delta:
                                             tool_calls_dict[idx]["function"]["name"] = func_delta["name"]
+                                            # Emit tool call name as soon as we get it
+                                            yield {
+                                                "type": "tool_call_start",
+                                                "data": {
+                                                    "index": idx,
+                                                    "name": func_delta["name"]
+                                                }
+                                            }
                                         if "arguments" in func_delta:
                                             tool_calls_dict[idx]["function"]["arguments"] += func_delta["arguments"]
+                                            # Stream arguments as they arrive
+                                            yield {
+                                                "type": "tool_call_arguments",
+                                                "data": {
+                                                    "index": idx,
+                                                    "arguments_chunk": func_delta["arguments"]
+                                                }
+                                            }
                             
                             # Capture finish reason
                             if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"]:
@@ -795,15 +825,21 @@ Provide a brief summary (2-3 sentences):"""
                         }
                     }
                 }
+                
+                # Clear the current request
+                self.current_request = None
             else:
+                self.current_request = None
                 yield {
                     "type": "error",
                     "data": {"error": f"LM Studio API error: {response.status_code} - {response.text}"}
                 }
                 
         except requests.exceptions.RequestException as e:
+            self.current_request = None
             yield {"type": "error", "data": {"error": f"Connection error to LM Studio: {e}"}}
         except Exception as e:
+            self.current_request = None
             yield {"type": "error", "data": {"error": f"Error querying LLM: {e}"}}
     
     def execute_tool(self, tool_name: str, arguments: dict) -> dict:
@@ -1695,8 +1731,18 @@ def clear():
 
 @app.route('/api/stop', methods=['POST'])
 def stop():
-    """Stop current AI processing"""
+    """Stop current AI processing and close LM Studio connection"""
     agent.stop_requested = True
+    
+    # Close the active LM Studio request if any
+    if agent.current_request:
+        try:
+            agent.current_request.close()
+            logger.info("Closed active LM Studio connection")
+        except Exception as e:
+            logger.error(f"Error closing LM Studio connection: {e}")
+        agent.current_request = None
+    
     return jsonify({"status": "stop_requested"})
 
 @app.route('/api/execute', methods=['POST'])
