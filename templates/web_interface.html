@@ -954,6 +954,28 @@
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
         }
+        
+        .file-upload-label {
+            display: block;
+            padding: 40px;
+            border: 2px dashed rgba(100, 116, 139, 0.5);
+            border-radius: 12px;
+            background: #0f172a;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: #cbd5e1;
+        }
+        
+        .file-upload-label:hover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+            transform: translateY(-2px);
+        }
+        
+        .file-upload-label:active {
+            transform: translateY(0);
+        }
     </style>
 </head>
 <body>
@@ -1045,11 +1067,11 @@
                 <label for="saveFilename">Filename:</label>
                 <input type="text" id="saveFilename" placeholder="chat_2025_11_17.json" />
                 <p style="color: #64748b; font-size: 14px; margin-top: 8px;">
-                    Saved to: <code>~/aiOS_chats/</code>
+                    💾 File will be downloaded to your browser's download folder
                 </p>
             </div>
             <div class="modal-footer">
-                <button id="saveConfirmBtn" class="modal-btn-primary">Save</button>
+                <button id="saveConfirmBtn" class="modal-btn-primary">Download</button>
                 <button id="saveCancelBtn" class="modal-btn-secondary">Cancel</button>
             </div>
         </div>
@@ -1063,8 +1085,19 @@
                 <span class="modal-close" id="loadModalClose">&times;</span>
             </div>
             <div class="modal-body">
-                <div id="loadFileList" class="file-list">
-                    <div class="loading-spinner">Loading saved chats...</div>
+                <div style="margin-bottom: 20px;">
+                    <label for="loadFileInput" class="file-upload-label">
+                        <span style="font-size: 48px;">📁</span>
+                        <p style="margin: 12px 0 4px 0; font-size: 16px; font-weight: 600;">Click to select a conversation file</p>
+                        <p style="margin: 0; font-size: 13px; color: #94a3b8;">or drag and drop here</p>
+                    </label>
+                    <input type="file" id="loadFileInput" accept=".json" style="display: none;" />
+                </div>
+                <div style="border-top: 1px solid rgba(100, 116, 139, 0.3); padding-top: 20px;">
+                    <p style="color: #94a3b8; font-size: 14px; margin-bottom: 12px;">Or load from server:</p>
+                    <div id="loadFileList" class="file-list">
+                        <div class="loading-spinner">Loading saved chats...</div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -1799,13 +1832,23 @@
                     break;
                 
                 case 'usage_stats':
-                    // Accumulate tokens for the current task
-                    currentTaskTokens.prompt += event.data.prompt_tokens || 0;
-                    currentTaskTokens.completion += event.data.completion_tokens || 0;
-                    currentTaskTokens.total += event.data.total_tokens || 0;
+                    // Accumulate tokens for the current task ONLY (using task_tokens delta)
+                    // event.data.task_tokens contains tokens used since task started
+                    // event.data.total_tokens contains cumulative conversation tokens
+                    
+                    if (event.data.task_tokens !== undefined) {
+                        // Use task-specific tokens (already calculated as delta in backend)
+                        currentTaskTokens.total = event.data.task_tokens;
+                    } else {
+                        // Fallback: accumulate from individual stats (backward compatibility)
+                        currentTaskTokens.prompt += event.data.prompt_tokens || 0;
+                        currentTaskTokens.completion += event.data.completion_tokens || 0;
+                        currentTaskTokens.total += event.data.total_tokens || 0;
+                    }
+                    
                     currentContextInfo = event.data.context_info || {};
                     
-                    // Update context display in header
+                    // Update context display in header (uses full conversation tokens)
                     const contextPercent = currentContextInfo.max_context_tokens ? 
                         Math.round((currentContextInfo.estimated_context_tokens / currentContextInfo.max_context_tokens) * 100) : 0;
                     document.getElementById('contextStatus').textContent = 
@@ -2131,35 +2174,77 @@
         });
         
         saveConfirmBtn.addEventListener('click', async () => {
-            const filename = saveFilename.value.trim();
+            let filename = saveFilename.value.trim();
             if (!filename) {
                 alert('Please enter a filename');
                 return;
             }
             
+            // Ensure .json extension
+            if (!filename.endsWith('.json')) {
+                filename += '.json';
+            }
+            
             try {
-                const response = await fetch('/api/save', {
+                // Get conversation data from backend
+                const response = await fetch('/api/status');
+                const status = await response.json();
+                
+                // Create chat data object
+                const chatData = {
+                    timestamp: new Date().toISOString(),
+                    version: "1.0",
+                    conversation_count: status.message_count || 0
+                };
+                
+                // Get conversation history from backend
+                const saveResponse = await fetch('/api/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename })
+                    body: JSON.stringify({ filename: 'temp.json' })
                 });
                 
-                const result = await response.json();
-                
-                if (response.ok) {
-                    saveModal.classList.remove('active');
+                if (saveResponse.ok) {
+                    const saveResult = await saveResponse.json();
                     
-                    const successDiv = document.createElement('div');
-                    successDiv.className = 'task-complete';
-                    successDiv.innerHTML = `
-                        <span style="font-size: 24px;">💾</span>
-                        <span>Conversation saved to ${result.filepath}</span>
-                        <span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${result.message_count} messages</span>
-                    `;
-                    chatContainer.appendChild(successDiv);
-                    scrollToBottom();
+                    // Now download from server to get the full conversation data
+                    const downloadResponse = await fetch('/api/download', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filepath: saveResult.filepath })
+                    });
+                    
+                    if (downloadResponse.ok) {
+                        // Get the JSON data
+                        const conversationData = await downloadResponse.json();
+                        
+                        // Create blob and trigger download
+                        const blob = new Blob([JSON.stringify(conversationData, null, 2)], { type: 'application/json' });
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        
+                        saveModal.classList.remove('active');
+                        
+                        const successDiv = document.createElement('div');
+                        successDiv.className = 'task-complete';
+                        successDiv.innerHTML = `
+                            <span style="font-size: 24px;">💾</span>
+                            <span>Conversation downloaded as ${filename}</span>
+                            <span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${saveResult.message_count} messages</span>
+                        `;
+                        chatContainer.appendChild(successDiv);
+                        scrollToBottom();
+                    } else {
+                        alert('Error downloading conversation');
+                    }
                 } else {
-                    alert('Error saving: ' + result.error);
+                    alert('Error saving conversation');
                 }
             } catch (error) {
                 console.error('Error saving:', error);
@@ -2186,6 +2271,95 @@
         const loadModalClose = document.getElementById('loadModalClose');
         const loadCancelBtn = document.getElementById('loadCancelBtn');
         const loadFileList = document.getElementById('loadFileList');
+        const loadFileInput = document.getElementById('loadFileInput');
+        
+        // Handle file input change
+        loadFileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            if (!file.name.endsWith('.json')) {
+                alert('Please select a JSON file');
+                return;
+            }
+            
+            try {
+                const text = await file.text();
+                const conversationData = JSON.parse(text);
+                
+                // Upload to server to restore conversation
+                const response = await fetch('/api/restore', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(conversationData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    loadModal.classList.remove('active');
+                    
+                    // Clear chat display
+                    chatContainer.innerHTML = '';
+                    
+                    // Render the conversation history
+                    if (result.conversation_history && result.conversation_history.length > 0) {
+                        result.conversation_history.forEach(msg => {
+                            if (msg.role === 'user') {
+                                addMessage('user', msg.content || '');
+                            } else if (msg.role === 'assistant') {
+                                addMessage('ai', msg.content || '', true);
+                            }
+                        });
+                    }
+                    
+                    const successDiv = document.createElement('div');
+                    successDiv.className = 'task-complete';
+                    successDiv.innerHTML = `
+                        <span style="font-size: 24px;">📂</span>
+                        <span>Conversation loaded from ${file.name}</span>
+                        <span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${result.message_count} messages restored</span>
+                    `;
+                    chatContainer.appendChild(successDiv);
+                    scrollToBottom();
+                } else {
+                    alert('Error loading: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error loading file:', error);
+                alert('Error loading file. Please make sure it\'s a valid conversation JSON file.');
+            }
+            
+            // Reset input
+            loadFileInput.value = '';
+        });
+        
+        // Drag and drop support
+        const fileUploadLabel = document.querySelector('.file-upload-label');
+        
+        fileUploadLabel.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileUploadLabel.style.borderColor = '#667eea';
+            fileUploadLabel.style.background = 'rgba(102, 126, 234, 0.1)';
+        });
+        
+        fileUploadLabel.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            fileUploadLabel.style.borderColor = 'rgba(100, 116, 139, 0.5)';
+            fileUploadLabel.style.background = '#0f172a';
+        });
+        
+        fileUploadLabel.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileUploadLabel.style.borderColor = 'rgba(100, 116, 139, 0.5)';
+            fileUploadLabel.style.background = '#0f172a';
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                loadFileInput.files = files;
+                loadFileInput.dispatchEvent(new Event('change'));
+            }
+        });
         
         loadBtn.addEventListener('click', async () => {
             loadModal.classList.add('active');

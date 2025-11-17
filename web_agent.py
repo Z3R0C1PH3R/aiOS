@@ -1440,6 +1440,10 @@ Created: {info['created']}"""
         # Reset stop flag at start of new request
         self.stop_requested = False
         
+        # Track tokens at start of task for calculating task-specific usage
+        tokens_at_start = self.get_accurate_token_count()
+        task_start_tokens = tokens_at_start.get("prompt_tokens", 0)
+        
         # Initial AI query with streaming
         yield yield_event("ai_thinking", {})
         
@@ -1489,12 +1493,16 @@ Created: {info['created']}"""
                 response_usage = chunk["data"]["usage"]
                 response_context_info = chunk["data"]["context_info"]
                 
-                # Emit usage stats
+                # Calculate tokens used in this response only (delta from previous state)
+                # response_usage contains total conversation tokens, not just this response
+                # We need to send the full totals for context tracking, but also deltas for task tracking
                 yield yield_event("usage_stats", {
                     "prompt_tokens": response_usage["prompt_tokens"],
                     "completion_tokens": response_usage["completion_tokens"],
                     "total_tokens": response_usage["total_tokens"],
-                    "context_info": response_context_info
+                    "context_info": response_context_info,
+                    # Add task-specific deltas
+                    "task_tokens": response_usage["prompt_tokens"] - task_start_tokens if task_start_tokens > 0 else response_usage["total_tokens"]
                 })
                 
                 # Emit tool calls info if any
@@ -1737,12 +1745,14 @@ Created: {info['created']}"""
                     response_usage = chunk["data"]["usage"]
                     response_context_info = chunk["data"]["context_info"]
                     
-                    # Emit usage stats
+                    # Emit usage stats with task-specific delta
                     yield yield_event("usage_stats", {
                         "prompt_tokens": response_usage["prompt_tokens"],
                         "completion_tokens": response_usage["completion_tokens"],
                         "total_tokens": response_usage["total_tokens"],
-                        "context_info": response_context_info
+                        "context_info": response_context_info,
+                        # Add task-specific deltas
+                        "task_tokens": response_usage["prompt_tokens"] - task_start_tokens if task_start_tokens > 0 else response_usage["total_tokens"]
                     })
                     
                     # Emit tool calls info if any
@@ -1989,14 +1999,39 @@ def download_conversation():
         return jsonify({"error": f"File not found: {filepath}"}), 404
     
     try:
-        return send_file(
-            filepath,
-            as_attachment=True,
-            download_name=os.path.basename(filepath),
-            mimetype='application/json'
-        )
+        # Read and return as JSON
+        with open(filepath, 'r') as f:
+            chat_data = json.load(f)
+        return jsonify(chat_data)
     except Exception as e:
         logger.error(f"Error downloading file: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/restore', methods=['POST'])
+def restore_conversation():
+    """Restore conversation from uploaded JSON data"""
+    try:
+        chat_data = request.json
+        
+        # Validate the data structure
+        if not isinstance(chat_data, dict):
+            return jsonify({"error": "Invalid data format"}), 400
+        
+        if "conversation_history" not in chat_data:
+            return jsonify({"error": "Missing conversation_history in data"}), 400
+        
+        # Restore conversation history
+        agent.conversation_history = chat_data.get("conversation_history", [])
+        
+        logger.info(f"Conversation restored from uploaded file")
+        return jsonify({
+            "status": "loaded",
+            "message_count": len(agent.conversation_history),
+            "timestamp": chat_data.get("timestamp", "unknown"),
+            "conversation_history": agent.conversation_history
+        })
+    except Exception as e:
+        logger.error(f"Error restoring conversation: {e}")
         return jsonify({"error": str(e)}), 500
 
 
