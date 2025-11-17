@@ -357,6 +357,19 @@ FILE OPERATIONS:
    - Replaces ALL occurrences
    - Use for: changing values, updating text
 
+**IMPORTANT FILE SIZE RULES:**
+- ❌ NEVER create files larger than 500 lines in one go
+- ❌ NEVER write massive code blocks that would exceed token limits
+- ✅ For large files (>500 lines):
+  1. Create the file structure/skeleton first (write)
+  2. Add sections incrementally using insert or append
+  3. Tell the user "File created in parts due to size"
+- ✅ For config files, HTML, or data files:
+  1. Create the base file with minimal content
+  2. Add sections using append or insert operations
+  3. Example: Create HTML with just <html><body></body></html>, then append sections
+- ✅ If user asks for a large codebase, create multiple smaller files instead
+
 SYSTEM OPERATIONS:
 5. list_directory(path?, show_hidden?, recursive?): List directory contents
    - list_directory(".") - Current directory

@@ -738,6 +738,10 @@
             total: 0
         };
         let currentContextInfo = null;
+        
+        // Store current stream reader for force stop
+        let currentStreamReader = null;
+        let currentStreamController = null;
 
         function processEvent(event) {
             // Process single event in real-time
@@ -1379,6 +1383,7 @@
 
                 // Read the stream
                 const reader = response.body.getReader();
+                currentStreamReader = reader; // Store for force stop
                 const decoder = new TextDecoder();
                 let buffer = '';
 
@@ -1425,8 +1430,11 @@
                 console.log('Finished processing stream');
             } catch (error) {
                 console.error('Error:', error);
-                addMessage('ai', `Connection error: ${error.message}`);
+                if (error.name !== 'AbortError') {
+                    addMessage('ai', `Connection error: ${error.message}`);
+                }
             } finally {
+                currentStreamReader = null;
                 isProcessing = false;
                 sendBtn.disabled = false;
                 sendBtn.style.display = 'flex';
@@ -1438,8 +1446,37 @@
         // Stop AI processing
         async function stopProcessing() {
             try {
+                // Abort the stream immediately
+                if (currentStreamReader) {
+                    await currentStreamReader.cancel();
+                    currentStreamReader = null;
+                }
+                
+                // Tell backend to stop (for context preservation)
                 await fetch('/api/stop', { method: 'POST' });
-                addMessage('ai', 'Stop request sent. AI will halt after current operation...');
+                
+                // Remove any thinking indicator
+                if (currentProgressIds.thinking) {
+                    removeProgressIndicator(currentProgressIds.thinking);
+                    currentProgressIds.thinking = null;
+                }
+                
+                // Show stop message
+                const stoppedDiv = document.createElement('div');
+                stoppedDiv.className = 'task-complete';
+                stoppedDiv.style.background = 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)';
+                stoppedDiv.innerHTML = `
+                    <span style="font-size: 24px;">🛑</span>
+                    <span>Processing force stopped - Context preserved</span>
+                `;
+                chatContainer.appendChild(stoppedDiv);
+                scrollToBottom();
+                
+                // Reset UI
+                isProcessing = false;
+                sendBtn.disabled = false;
+                sendBtn.style.display = 'flex';
+                stopBtn.style.display = 'none';
             } catch (error) {
                 console.error('Error stopping:', error);
             }
