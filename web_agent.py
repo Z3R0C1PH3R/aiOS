@@ -1384,6 +1384,20 @@ Created: {info['created']}"""
                 yield yield_event("ai_response_chunk", {"chunk": chunk["data"]["chunk"]})
                 response_message += chunk["data"]["chunk"]
             
+            elif chunk["type"] == "tool_call_start":
+                # Forward tool call start to frontend
+                yield yield_event("tool_call_start", {
+                    "index": chunk["data"]["index"],
+                    "name": chunk["data"]["name"]
+                })
+            
+            elif chunk["type"] == "tool_call_arguments":
+                # Forward tool call arguments to frontend
+                yield yield_event("tool_call_arguments", {
+                    "index": chunk["data"]["index"],
+                    "arguments_chunk": chunk["data"]["arguments_chunk"]
+                })
+            
             elif chunk["type"] == "complete":
                 response_message = chunk["data"]["message"]
                 response_tool_calls = chunk["data"]["tool_calls"]
