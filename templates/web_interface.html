@@ -737,6 +737,205 @@
             background: rgba(255, 255, 255, 0.3);
             border-radius: 3px;
         }
+        
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            animation: fadeIn 0.2s ease-out;
+        }
+        
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .modal-content {
+            background: #1e293b;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            animation: slideUp 0.3s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                transform: translateY(30px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        .modal-header {
+            padding: 24px;
+            border-bottom: 1px solid rgba(100, 116, 139, 0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header h2 {
+            margin: 0;
+            color: #e2e8f0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .modal-close {
+            font-size: 32px;
+            color: #94a3b8;
+            cursor: pointer;
+            transition: color 0.2s;
+            line-height: 1;
+        }
+        
+        .modal-close:hover {
+            color: #e2e8f0;
+        }
+        
+        .modal-body {
+            padding: 24px;
+            color: #e2e8f0;
+        }
+        
+        .modal-body label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #cbd5e1;
+        }
+        
+        .modal-body input[type="text"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid rgba(100, 116, 139, 0.3);
+            border-radius: 8px;
+            background: #0f172a;
+            color: #e2e8f0;
+            font-size: 16px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .modal-body input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+        
+        .modal-footer {
+            padding: 20px 24px;
+            border-top: 1px solid rgba(100, 116, 139, 0.3);
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+        
+        .modal-btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .modal-btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .modal-btn-secondary {
+            background: transparent;
+            color: #cbd5e1;
+            padding: 12px 24px;
+            border: 1px solid rgba(100, 116, 139, 0.3);
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .modal-btn-secondary:hover {
+            background: rgba(100, 116, 139, 0.1);
+            border-color: #667eea;
+            color: #e2e8f0;
+        }
+        
+        .file-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .file-item {
+            padding: 16px;
+            background: #0f172a;
+            border: 1px solid rgba(100, 116, 139, 0.3);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .file-item:hover {
+            background: rgba(102, 126, 234, 0.1);
+            border-color: #667eea;
+            transform: translateX(4px);
+        }
+        
+        .file-item-name {
+            font-weight: 600;
+            color: #e2e8f0;
+            font-size: 16px;
+            margin-bottom: 6px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .file-item-meta {
+            font-size: 13px;
+            color: #94a3b8;
+            display: flex;
+            gap: 16px;
+        }
+        
+        .loading-spinner {
+            text-align: center;
+            padding: 40px;
+            color: #94a3b8;
+            font-style: italic;
+        }
+        
+        #saveBtn, #loadBtn {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+        
+        #saveBtn:hover, #loadBtn:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
     </style>
 </head>
 <body>
@@ -801,10 +1000,57 @@
                         <span>⏹️</span>
                         <span>Stop</span>
                     </button>
+                    <button id="saveBtn" title="Save conversation to file">
+                        <span>💾</span>
+                        <span>Save</span>
+                    </button>
+                    <button id="loadBtn" title="Load conversation from file">
+                        <span>📂</span>
+                        <span>Load</span>
+                    </button>
                     <button id="clearBtn" title="Clear conversation history">
                         <span>🗑️</span>
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Save Dialog Modal -->
+    <div id="saveModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>💾 Save Conversation</h2>
+                <span class="modal-close" id="saveModalClose">&times;</span>
+            </div>
+            <div class="modal-body">
+                <label for="saveFilename">Filename:</label>
+                <input type="text" id="saveFilename" placeholder="chat_2025_11_17.json" />
+                <p style="color: #64748b; font-size: 14px; margin-top: 8px;">
+                    Saved to: <code>~/aiOS_chats/</code>
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button id="saveConfirmBtn" class="modal-btn-primary">Save</button>
+                <button id="saveCancelBtn" class="modal-btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Load Dialog Modal -->
+    <div id="loadModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📂 Load Conversation</h2>
+                <span class="modal-close" id="loadModalClose">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="loadFileList" class="file-list">
+                    <div class="loading-spinner">Loading saved chats...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="loadCancelBtn" class="modal-btn-secondary">Cancel</button>
             </div>
         </div>
     </div>
@@ -1536,9 +1782,9 @@
                 
                 case 'usage_stats':
                     // Accumulate tokens for the current task
-                    currentTaskTokens.prompt += event.data.prompt_tokens;
-                    currentTaskTokens.completion += event.data.completion_tokens;
-                    currentTaskTokens.total += event.data.total_tokens;
+                    currentTaskTokens.prompt += event.data.prompt_tokens || 0;
+                    currentTaskTokens.completion += event.data.completion_tokens || 0;
+                    currentTaskTokens.total += event.data.total_tokens || 0;
                     currentContextInfo = event.data.context_info || {};
                     
                     // Update context display in header
@@ -1839,6 +2085,180 @@
                 console.error('Error clearing:', error);
             }
         }
+
+        // Save conversation
+        const saveModal = document.getElementById('saveModal');
+        const saveBtn = document.getElementById('saveBtn');
+        const saveModalClose = document.getElementById('saveModalClose');
+        const saveConfirmBtn = document.getElementById('saveConfirmBtn');
+        const saveCancelBtn = document.getElementById('saveCancelBtn');
+        const saveFilename = document.getElementById('saveFilename');
+        
+        saveBtn.addEventListener('click', () => {
+            // Generate default filename
+            const now = new Date();
+            const defaultName = `chat_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.json`;
+            saveFilename.value = defaultName;
+            saveModal.classList.add('active');
+            saveFilename.focus();
+            saveFilename.select();
+        });
+        
+        saveModalClose.addEventListener('click', () => {
+            saveModal.classList.remove('active');
+        });
+        
+        saveCancelBtn.addEventListener('click', () => {
+            saveModal.classList.remove('active');
+        });
+        
+        saveConfirmBtn.addEventListener('click', async () => {
+            const filename = saveFilename.value.trim();
+            if (!filename) {
+                alert('Please enter a filename');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    saveModal.classList.remove('active');
+                    
+                    const successDiv = document.createElement('div');
+                    successDiv.className = 'task-complete';
+                    successDiv.innerHTML = `
+                        <span style="font-size: 24px;">💾</span>
+                        <span>Conversation saved to ${result.filepath}</span>
+                        <span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${result.message_count} messages</span>
+                    `;
+                    chatContainer.appendChild(successDiv);
+                    scrollToBottom();
+                } else {
+                    alert('Error saving: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error saving:', error);
+                alert('Error saving conversation');
+            }
+        });
+        
+        saveFilename.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                saveConfirmBtn.click();
+            }
+        });
+        
+        // Close modal on background click
+        saveModal.addEventListener('click', (e) => {
+            if (e.target === saveModal) {
+                saveModal.classList.remove('active');
+            }
+        });
+
+        // Load conversation
+        const loadModal = document.getElementById('loadModal');
+        const loadBtn = document.getElementById('loadBtn');
+        const loadModalClose = document.getElementById('loadModalClose');
+        const loadCancelBtn = document.getElementById('loadCancelBtn');
+        const loadFileList = document.getElementById('loadFileList');
+        
+        loadBtn.addEventListener('click', async () => {
+            loadModal.classList.add('active');
+            loadFileList.innerHTML = '<div class="loading-spinner">Loading saved chats...</div>';
+            
+            try {
+                const response = await fetch('/api/list-saves');
+                const result = await response.json();
+                
+                if (result.saves.length === 0) {
+                    loadFileList.innerHTML = '<div class="loading-spinner">No saved conversations found</div>';
+                    return;
+                }
+                
+                loadFileList.innerHTML = '';
+                result.saves.forEach(file => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'file-item';
+                    
+                    const date = new Date(file.modified);
+                    const dateStr = date.toLocaleString();
+                    const sizeKB = (file.size / 1024).toFixed(1);
+                    
+                    fileItem.innerHTML = `
+                        <div class="file-item-name">📄 ${file.filename}</div>
+                        <div class="file-item-meta">
+                            <span>📅 ${dateStr}</span>
+                            <span>💾 ${sizeKB} KB</span>
+                        </div>
+                    `;
+                    
+                    fileItem.addEventListener('click', async () => {
+                        if (!confirm(`Load conversation from ${file.filename}? Current conversation will be replaced.`)) {
+                            return;
+                        }
+                        
+                        try {
+                            const loadResponse = await fetch('/api/load', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ filepath: file.filepath })
+                            });
+                            
+                            const loadResult = await loadResponse.json();
+                            
+                            if (loadResponse.ok) {
+                                loadModal.classList.remove('active');
+                                
+                                // Clear chat display
+                                chatContainer.innerHTML = '';
+                                
+                                const successDiv = document.createElement('div');
+                                successDiv.className = 'task-complete';
+                                successDiv.innerHTML = `
+                                    <span style="font-size: 24px;">📂</span>
+                                    <span>Conversation loaded from ${file.filename}</span>
+                                    <span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${loadResult.message_count} messages restored</span>
+                                `;
+                                chatContainer.appendChild(successDiv);
+                                scrollToBottom();
+                            } else {
+                                alert('Error loading: ' + loadResult.error);
+                            }
+                        } catch (error) {
+                            console.error('Error loading:', error);
+                            alert('Error loading conversation');
+                        }
+                    });
+                    
+                    loadFileList.appendChild(fileItem);
+                });
+            } catch (error) {
+                console.error('Error listing saves:', error);
+                loadFileList.innerHTML = '<div class="loading-spinner">Error loading saves</div>';
+            }
+        });
+        
+        loadModalClose.addEventListener('click', () => {
+            loadModal.classList.remove('active');
+        });
+        
+        loadCancelBtn.addEventListener('click', () => {
+            loadModal.classList.remove('active');
+        });
+        
+        // Close modal on background click
+        loadModal.addEventListener('click', (e) => {
+            if (e.target === loadModal) {
+                loadModal.classList.remove('active');
+            }
+        });
 
         // Event listeners
         sendBtn.addEventListener('click', sendMessage);

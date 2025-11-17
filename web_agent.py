@@ -500,6 +500,45 @@ IMPORTANT: Use function calls to perform actions, not text instructions!
                 "return_code": -1
             }
 
+    def get_accurate_token_count(self) -> dict:
+        """Get accurate token count from LM Studio using a dummy non-streaming call"""
+        try:
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                *self.conversation_history,
+                {"role": "user", "content": ""}  # Empty dummy message
+            ]
+            
+            payload = {
+                "model": MODEL_NAME,
+                "messages": messages,
+                "temperature": 0,
+                "max_tokens": 1,  # Minimal tokens to save time
+                "stream": False   # Non-streaming to get usage stats
+            }
+            
+            response = self.session.post(
+                f"{self.lm_studio_url}/v1/chat/completions",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=5  # Quick timeout
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                usage = data.get("usage", {})
+                return {
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0)
+                }
+            else:
+                logger.warning(f"Failed to get token count: {response.status_code}")
+                return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        except Exception as e:
+            logger.error(f"Error getting accurate token count: {e}")
+            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
     def estimate_tokens(self, text: str) -> int:
         """Rough token estimation (1 token ≈ 4 characters)"""
         return len(text) // 4
@@ -810,7 +849,8 @@ Provide a brief summary (2-3 sentences):"""
                 # Convert tool_calls_dict to list
                 tool_calls = [tool_calls_dict[i] for i in sorted(tool_calls_dict.keys())] if tool_calls_dict else []
                 
-                # Store assistant response in conversation history
+                # Store assistant response in conversation history FIRST
+                # (so the token count includes it)
                 if tool_calls:
                     self.conversation_history.append({
                         "role": "assistant",
@@ -823,6 +863,27 @@ Provide a brief summary (2-3 sentences):"""
                         "content": accumulated_content
                     })
                 
+                # Get accurate token count from LM Studio
+                # This makes a quick non-streaming call to get the real token usage
+                logger.info("Getting accurate token count from LM Studio...")
+                usage_info = self.get_accurate_token_count()
+                
+                if usage_info["total_tokens"] > 0:
+                    logger.info(f"Accurate usage: {usage_info['prompt_tokens']} prompt + {usage_info['completion_tokens']} completion = {usage_info['total_tokens']} total tokens")
+                else:
+                    logger.warning("Failed to get accurate token count, falling back to estimation")
+                    # Fallback to estimation if the API call failed
+                    prompt_text = json.dumps(messages)
+                    completion_text = accumulated_content + json.dumps(tool_calls) if tool_calls else accumulated_content
+                    
+                    usage_info = {
+                        "prompt_tokens": self.estimate_tokens(prompt_text),
+                        "completion_tokens": self.estimate_tokens(completion_text),
+                        "total_tokens": 0
+                    }
+                    usage_info["total_tokens"] = usage_info["prompt_tokens"] + usage_info["completion_tokens"]
+                    logger.info(f"Estimated usage: {usage_info['prompt_tokens']} prompt + {usage_info['completion_tokens']} completion = {usage_info['total_tokens']} total tokens")
+                
                 # Yield final metadata
                 yield {
                     "type": "complete",
@@ -831,9 +892,9 @@ Provide a brief summary (2-3 sentences):"""
                         "tool_calls": tool_calls,
                         "finish_reason": finish_reason,
                         "usage": {
-                            "prompt_tokens": usage_info.get("prompt_tokens", 0) if usage_info else 0,
-                            "completion_tokens": usage_info.get("completion_tokens", 0) if usage_info else 0,
-                            "total_tokens": usage_info.get("total_tokens", 0) if usage_info else 0
+                            "prompt_tokens": usage_info.get("prompt_tokens", 0),
+                            "completion_tokens": usage_info.get("completion_tokens", 0),
+                            "total_tokens": usage_info.get("total_tokens", 0)
                         },
                         "context_info": {
                             "conversation_messages": len(self.conversation_history),
@@ -1802,6 +1863,104 @@ def execute():
         return jsonify(result)
     except Exception as e:
         logger.error(f"Error executing command: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/save', methods=['POST'])
+def save_conversation():
+    """Save conversation history to a file"""
+    data = request.json
+    filename = data.get('filename', f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+    
+    # Ensure filename ends with .json
+    if not filename.endswith('.json'):
+        filename += '.json'
+    
+    # Save to user's home directory by default
+    save_dir = os.path.expanduser("~/aiOS_chats")
+    os.makedirs(save_dir, exist_ok=True)
+    filepath = os.path.join(save_dir, filename)
+    
+    try:
+        chat_data = {
+            "timestamp": datetime.now().isoformat(),
+            "system_prompt": agent.system_prompt,
+            "conversation_history": agent.conversation_history,
+            "version": "1.0"
+        }
+        
+        with open(filepath, 'w') as f:
+            json.dump(chat_data, f, indent=2)
+        
+        logger.info(f"Conversation saved to {filepath}")
+        return jsonify({
+            "status": "saved",
+            "filepath": filepath,
+            "message_count": len(agent.conversation_history)
+        })
+    except Exception as e:
+        logger.error(f"Error saving conversation: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/load', methods=['POST'])
+def load_conversation():
+    """Load conversation history from a file"""
+    data = request.json
+    filepath = data.get('filepath', '')
+    
+    if not filepath:
+        return jsonify({"error": "No filepath provided"}), 400
+    
+    # Expand user path
+    filepath = os.path.expanduser(filepath)
+    
+    if not os.path.exists(filepath):
+        return jsonify({"error": f"File not found: {filepath}"}), 404
+    
+    try:
+        with open(filepath, 'r') as f:
+            chat_data = json.load(f)
+        
+        # Restore conversation history
+        agent.conversation_history = chat_data.get("conversation_history", [])
+        
+        logger.info(f"Conversation loaded from {filepath}")
+        return jsonify({
+            "status": "loaded",
+            "filepath": filepath,
+            "message_count": len(agent.conversation_history),
+            "timestamp": chat_data.get("timestamp", "unknown")
+        })
+    except Exception as e:
+        logger.error(f"Error loading conversation: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/list-saves', methods=['GET'])
+def list_saves():
+    """List all saved conversation files"""
+    save_dir = os.path.expanduser("~/aiOS_chats")
+    
+    if not os.path.exists(save_dir):
+        return jsonify({"saves": []})
+    
+    try:
+        files = []
+        for filename in os.listdir(save_dir):
+            if filename.endswith('.json'):
+                filepath = os.path.join(save_dir, filename)
+                stat = os.stat(filepath)
+                files.append({
+                    "filename": filename,
+                    "filepath": filepath,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                })
+        
+        # Sort by modified time, newest first
+        files.sort(key=lambda x: x['modified'], reverse=True)
+        
+        return jsonify({"saves": files})
+    except Exception as e:
+        logger.error(f"Error listing saves: {e}")
         return jsonify({"error": str(e)}), 500
 
 
