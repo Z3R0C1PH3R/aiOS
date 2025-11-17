@@ -389,29 +389,35 @@
         }
 
         .tool-calls-info {
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 10px;
-            margin: 10px 0;
-            font-size: 13px;
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-left: 4px solid #f59e0b;
+            color: #fbbf24;
+            padding: 14px 24px;
+            border-radius: 12px;
+            margin: 14px 0;
+            font-size: 15px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         }
 
         .tool-calls-info .tools-list {
             display: flex;
-            gap: 8px;
+            gap: 10px;
             flex-wrap: wrap;
         }
 
         .tool-calls-info .tool-badge {
-            background: rgba(255, 255, 255, 0.2);
-            padding: 4px 10px;
-            border-radius: 6px;
+            background: rgba(251, 191, 36, 0.2);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            color: #fcd34d;
+            padding: 6px 12px;
+            border-radius: 8px;
             font-family: 'Monaco', 'Courier New', monospace;
-            font-size: 12px;
+            font-size: 13px;
+            font-weight: 600;
         }
 
         .thinking {
@@ -471,41 +477,52 @@
         }
 
         .progress-indicator {
-            background: white;
+            background: #1e293b;
             border-radius: 12px;
-            padding: 15px 20px;
-            margin: 10px 0;
+            padding: 16px 24px;
+            margin: 12px 0;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 14px;
             border-left: 4px solid #667eea;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+
+        .progress-indicator.thinking {
+            border-left-color: #8b5cf6;
+            background: rgba(139, 92, 246, 0.1);
         }
 
         .progress-indicator.executing {
             border-left-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
         }
 
         .progress-indicator.success {
             border-left-color: #10b981;
+            background: rgba(16, 185, 129, 0.1);
         }
 
         .progress-indicator.error {
             border-left-color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
         }
 
         .progress-indicator.warning {
             border-left-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
         }
 
         .progress-text {
             flex: 1;
-            font-size: 15px;
-            color: #cbd5e1;
+            font-size: 16px;
+            color: #e2e8f0;
+            font-weight: 500;
         }
 
         .progress-icon {
-            font-size: 22px;
+            font-size: 24px;
         }
 
         .input-container {

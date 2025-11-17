@@ -740,6 +740,7 @@ Provide a brief summary (2-3 sentences):"""
                             
                             # Handle tool calls
                             if "tool_calls" in delta:
+                                logger.info(f"Tool calls in delta: {delta['tool_calls']}")
                                 for tool_call_delta in delta["tool_calls"]:
                                     idx = tool_call_delta.get("index", 0)
                                     
@@ -760,6 +761,7 @@ Provide a brief summary (2-3 sentences):"""
                                         func_delta = tool_call_delta["function"]
                                         if "name" in func_delta:
                                             tool_calls_dict[idx]["function"]["name"] = func_delta["name"]
+                                            logger.info(f"Emitting tool_call_start: {func_delta['name']}")
                                             # Emit tool call name as soon as we get it
                                             yield {
                                                 "type": "tool_call_start",
