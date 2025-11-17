@@ -12,21 +12,23 @@ import json
 import requests
 import psutil
 import socket
-import re
-from pathlib import Path
 from typing import Dict, Any
 import logging
 from datetime import datetime
-import threading
-import queue
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configuration
-LM_STUDIO_URL = "http://10.184.27.52:1234"
-MODEL_NAME = "qwen3-coder-30b"
-AGENT_NAME = "ArchAgent"
-LOG_FILE = "/tmp/arch_agent_web.log"
-MAX_CONTEXT_TOKENS = 16384  # Model's context window
-TARGET_CONTEXT_TOKENS = 12000  # Trigger summarization at 75% capacity
+LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://localhost:1234")
+MODEL_NAME = os.getenv("MODEL_NAME", "qwen3-coder-30b")
+AGENT_NAME = os.getenv("AGENT_NAME", "aiOSagent")
+LOG_FILE = os.getenv("LOG_FILE", "/tmp/arch_agent_web.log")
+
+MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "32768"))
+MAX_TOKENS_PER_RESPONSE = int(os.getenv("MAX_TOKENS_PER_RESPONSE", "8192"))
+TARGET_CONTEXT_TOKENS = MAX_CONTEXT_TOKENS-MAX_TOKENS_PER_RESPONSE
 
 # Set up logging
 logging.basicConfig(
@@ -652,7 +654,7 @@ Provide a brief summary (2-3 sentences):"""
                 "model": MODEL_NAME,
                 "messages": messages,
                 "temperature": 0.7,
-                "max_tokens": 4096,
+                "max_tokens": MAX_TOKENS_PER_RESPONSE,
                 "stream": False
             }
             
@@ -733,7 +735,7 @@ Provide a brief summary (2-3 sentences):"""
                 "model": MODEL_NAME,
                 "messages": messages,
                 "temperature": 0.7,
-                "max_tokens": 4096,
+                "max_tokens": MAX_TOKENS_PER_RESPONSE,
                 "stream": True  # Enable streaming!
             }
             
