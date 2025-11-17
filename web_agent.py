@@ -371,7 +371,7 @@ SYSTEM OPERATIONS:
 
 7. network_request(url, method?, headers?, body?, timeout?): Make HTTP requests
    - network_request("https://api.example.com/data") - GET request
-   - network_request("https://api.example.com/upload", method="POST", body='{"key":"value"}')
+   - network_request("https://api.example.com/upload", method="POST", body='{{"key":"value"}}')
    - Automatically parses JSON responses
    - Use for: API calls, downloading data, checking endpoints
 
@@ -491,9 +491,11 @@ IMPORTANT: Use function calls to perform actions, not text instructions!
     def summarize_context(self):
         """Summarize old conversation when approaching token limit"""
         if len(self.conversation_history) < 6:
-            return  # Need some history to summarize
+            return None  # Need some history to summarize
         
         logger.info("Summarizing conversation context...")
+        
+        tokens_before = self.get_conversation_tokens()
         
         # Keep first user message and last 4 messages, summarize the middle
         first_msg = self.conversation_history[0]
@@ -501,7 +503,7 @@ IMPORTANT: Use function calls to perform actions, not text instructions!
         to_summarize = self.conversation_history[1:-4]
         
         if not to_summarize:
-            return
+            return None
         
         # Build summary prompt
         conversation_text = "\n".join([
@@ -532,7 +534,8 @@ Provide a brief summary (2-3 sentences):"""
             )
             
             if response.status_code == 200:
-                summary = response.json()["choices"][0]["message"]["content"]
+                result = response.json()
+                summary = result["choices"][0]["message"]["content"]
                 
                 # Replace middle conversation with summary
                 self.conversation_history = [
@@ -540,17 +543,32 @@ Provide a brief summary (2-3 sentences):"""
                     {"role": "system", "content": f"[Previous conversation summary: {summary}]"},
                     *recent_msgs
                 ]
+                
+                tokens_after = self.get_conversation_tokens()
+                tokens_saved = tokens_before - tokens_after
+                
                 logger.info(f"Context summarized. New length: {len(self.conversation_history)} messages")
+                
+                # Return summarization info
+                return {
+                    "summarized": True,
+                    "tokens_before": tokens_before,
+                    "tokens_after": tokens_after,
+                    "tokens_saved": tokens_saved,
+                    "messages_summarized": len(to_summarize)
+                }
         except Exception as e:
             logger.error(f"Failed to summarize context: {e}")
+            return None
     
     def query_llm(self, prompt: str, use_tools: bool = True) -> dict:
         """Query LM Studio API with tool calling support"""
         try:
             # Check if we need to summarize
+            summarization_info = None
             current_tokens = self.get_conversation_tokens()
             if current_tokens > TARGET_CONTEXT_TOKENS:
-                self.summarize_context()
+                summarization_info = self.summarize_context()
             
             messages = [
                 {"role": "system", "content": self.system_prompt},
@@ -610,7 +628,8 @@ Provide a brief summary (2-3 sentences):"""
                         "conversation_messages": len(self.conversation_history),
                         "estimated_context_tokens": self.get_conversation_tokens(),
                         "max_context_tokens": MAX_CONTEXT_TOKENS
-                    }
+                    },
+                    "summarization": summarization_info
                 }
             else:
                 return {
@@ -1134,6 +1153,15 @@ Created: {info['created']}"""
         if not response["success"]:
             yield yield_event("error", {"message": response.get("error", "Unknown error")})
             return
+        
+        # Emit summarization event if context was summarized
+        if response.get("summarization"):
+            yield yield_event("context_summarized", {
+                "tokens_before": response["summarization"]["tokens_before"],
+                "tokens_after": response["summarization"]["tokens_after"],
+                "tokens_saved": response["summarization"]["tokens_saved"],
+                "messages_summarized": response["summarization"]["messages_summarized"]
+            })
         
         # Emit usage stats
         if response.get("usage"):
