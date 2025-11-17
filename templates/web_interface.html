@@ -979,6 +979,7 @@
                 
                 case 'tool_call_start':
                     // AI is starting to call a tool - show the name
+                    console.log('TOOL_CALL_START HANDLER:', event.data);
                     if (!currentProgressIds.toolCall) {
                         currentProgressIds.toolCall = {};
                     }
@@ -993,6 +994,7 @@
                 
                 case 'tool_call_arguments':
                     // Stream the arguments as they arrive
+                    console.log('TOOL_CALL_ARGUMENTS HANDLER:', event.data);
                     if (currentProgressIds.toolCall && currentProgressIds.toolCall[event.data.index]) {
                         const progressItem = document.getElementById(currentProgressIds.toolCall[event.data.index]);
                         if (progressItem) {

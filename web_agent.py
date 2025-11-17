@@ -1388,6 +1388,7 @@ Created: {info['created']}"""
             
             elif chunk["type"] == "tool_call_start":
                 # Forward tool call start to frontend
+                logger.info(f"Forwarding tool_call_start to frontend: {chunk['data']['name']}")
                 yield yield_event("tool_call_start", {
                     "index": chunk["data"]["index"],
                     "name": chunk["data"]["name"]
@@ -1395,6 +1396,7 @@ Created: {info['created']}"""
             
             elif chunk["type"] == "tool_call_arguments":
                 # Forward tool call arguments to frontend
+                logger.info(f"Forwarding tool_call_arguments to frontend: index={chunk['data']['index']}")
                 yield yield_event("tool_call_arguments", {
                     "index": chunk["data"]["index"],
                     "arguments_chunk": chunk["data"]["arguments_chunk"]
