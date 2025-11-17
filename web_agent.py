@@ -544,7 +544,14 @@ IMPORTANT: Use function calls to perform actions, not text instructions!
         return len(text) // 4
     
     def get_conversation_tokens(self) -> int:
-        """Estimate total tokens in conversation history"""
+        """Get accurate total tokens in conversation history from LM Studio"""
+        # Try to get accurate count from LM Studio
+        accurate_count = self.get_accurate_token_count()
+        if accurate_count["prompt_tokens"] > 0:
+            # Return the prompt_tokens which includes full conversation + system prompt
+            return accurate_count["prompt_tokens"]
+        
+        # Fallback to estimation if API call fails
         total = self.estimate_tokens(self.system_prompt)
         for msg in self.conversation_history:
             if isinstance(msg.get("content"), str):
@@ -1928,7 +1935,8 @@ def load_conversation():
             "status": "loaded",
             "filepath": filepath,
             "message_count": len(agent.conversation_history),
-            "timestamp": chat_data.get("timestamp", "unknown")
+            "timestamp": chat_data.get("timestamp", "unknown"),
+            "conversation_history": agent.conversation_history  # Return the full history
         })
     except Exception as e:
         logger.error(f"Error loading conversation: {e}")
@@ -1961,6 +1969,34 @@ def list_saves():
         return jsonify({"saves": files})
     except Exception as e:
         logger.error(f"Error listing saves: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/download', methods=['POST'])
+def download_conversation():
+    """Download a conversation file"""
+    from flask import send_file
+    
+    data = request.json
+    filepath = data.get('filepath', '')
+    
+    if not filepath:
+        return jsonify({"error": "No filepath provided"}), 400
+    
+    # Expand user path
+    filepath = os.path.expanduser(filepath)
+    
+    if not os.path.exists(filepath):
+        return jsonify({"error": f"File not found: {filepath}"}), 404
+    
+    try:
+        return send_file(
+            filepath,
+            as_attachment=True,
+            download_name=os.path.basename(filepath),
+            mimetype='application/json'
+        )
+    except Exception as e:
+        logger.error(f"Error downloading file: {e}")
         return jsonify({"error": str(e)}), 500
 
 

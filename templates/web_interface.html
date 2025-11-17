@@ -917,6 +917,24 @@
             color: #94a3b8;
             display: flex;
             gap: 16px;
+            align-items: center;
+        }
+        
+        .file-download-btn {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            margin-left: auto;
+        }
+        
+        .file-download-btn:hover {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            transform: scale(1.1);
         }
         
         .loading-spinner {
@@ -2196,8 +2214,40 @@
                         <div class="file-item-meta">
                             <span>📅 ${dateStr}</span>
                             <span>💾 ${sizeKB} KB</span>
+                            <button class="file-download-btn" title="Download">⬇️</button>
                         </div>
                     `;
+                    
+                    // Download button handler
+                    const downloadBtn = fileItem.querySelector('.file-download-btn');
+                    downloadBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation(); // Prevent triggering the load action
+                        
+                        try {
+                            const response = await fetch('/api/download', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ filepath: file.filepath })
+                            });
+                            
+                            if (response.ok) {
+                                const blob = await response.blob();
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = file.filename;
+                                document.body.appendChild(a);
+                                a.click();
+                                window.URL.revokeObjectURL(url);
+                                document.body.removeChild(a);
+                            } else {
+                                alert('Error downloading file');
+                            }
+                        } catch (error) {
+                            console.error('Error downloading:', error);
+                            alert('Error downloading file');
+                        }
+                    });
                     
                     fileItem.addEventListener('click', async () => {
                         if (!confirm(`Load conversation from ${file.filename}? Current conversation will be replaced.`)) {
@@ -2218,6 +2268,18 @@
                                 
                                 // Clear chat display
                                 chatContainer.innerHTML = '';
+                                
+                                // Render the conversation history
+                                if (loadResult.conversation_history && loadResult.conversation_history.length > 0) {
+                                    loadResult.conversation_history.forEach(msg => {
+                                        if (msg.role === 'user') {
+                                            addMessage('user', msg.content || '');
+                                        } else if (msg.role === 'assistant') {
+                                            addMessage('ai', msg.content || '', true);
+                                        }
+                                        // Skip system and tool messages for cleaner display
+                                    });
+                                }
                                 
                                 const successDiv = document.createElement('div');
                                 successDiv.className = 'task-complete';
