@@ -25,6 +25,8 @@ LM_STUDIO_URL = "http://10.184.27.52:1234"
 MODEL_NAME = "qwen3-coder-30b"
 AGENT_NAME = "ArchAgent"
 LOG_FILE = "/tmp/arch_agent_web.log"
+MAX_CONTEXT_TOKENS = 16384  # Model's context window
+TARGET_CONTEXT_TOKENS = 12000  # Trigger summarization at 75% capacity
 
 # Set up logging
 logging.basicConfig(
@@ -51,6 +53,67 @@ class OSAgent:
         self.conversation_history = []
         self.system_prompt = self._build_system_prompt()
         self.stop_requested = False
+        self.tools = self._define_tools()
+        
+    def _define_tools(self) -> list:
+        """Define available tools for LM Studio tool calling"""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "execute_command",
+                    "description": "Execute a shell command and get the output. Use this for running system commands, installing packages, checking status, etc. ALWAYS use --noconfirm flag for package managers. Do NOT use 'sudo' prefix - you are already root.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The shell command to execute. Use --noconfirm for pacman, -y for apt/yum. Never use sudo."
+                            }
+                        },
+                        "required": ["command"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "execute_background_command",
+                    "description": "Start a long-running background process (servers, daemons, watch modes). The command will run in the background and won't block execution.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The command to run in the background"
+                            }
+                        },
+                        "required": ["command"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "write_file",
+                    "description": "Create or overwrite a file with content. Use this instead of text editors. You have root access to write anywhere.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "filename": {
+                                "type": "string",
+                                "description": "Absolute or relative path to the file"
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "The complete file content (do not use markdown code blocks)"
+                            }
+                        },
+                        "required": ["filename", "content"]
+                    }
+                }
+            }
+        ]
         
     def _build_system_prompt(self) -> str:
         """Build the system prompt for the AI agent"""
@@ -62,62 +125,63 @@ SYSTEM INFORMATION:
 
 CURRENT WORKING DIRECTORY: {os.getcwd()}
 
-COMMAND EXECUTION TAGS:
+EXECUTION CONTEXT:
+- You are running as ROOT (UID 0) - DO NOT use 'sudo' in commands
+- ALL commands must be NON-INTERACTIVE (no user input prompts)
+- ALWAYS use --noconfirm, -y, or equivalent flags for package managers
 
-1. <COMMAND>command</COMMAND> - Execute command and see output automatically
-   Example: <COMMAND>sudo pacman -S firefox</COMMAND>
+AVAILABLE TOOLS:
+You have access to three tools via function calling:
 
-2. <COMMAND_BACKGROUND>command</COMMAND_BACKGROUND> - Run long-running/blocking commands (servers, watch mode, etc.)
-   Example: <COMMAND_BACKGROUND>python3 -m http.server 8000</COMMAND_BACKGROUND>
+1. execute_command(command): Run shell commands and see output
+   - Use for: package installation, system commands, file operations, checks
+   - Examples: "pacman -Syu --noconfirm", "ls -la", "systemctl status nginx"
+   - Remember: NO sudo, ALWAYS --noconfirm for pacman
 
-3. <WRITEFILE filename="path/to/file">content</WRITEFILE> - Create/write files. This wont execute any commands.
-   Example: <WRITEFILE filename="/etc/nginx/nginx.conf">server {{ listen 80; }}</WRITEFILE>
-   Note: Do NOT wrap content in markdown code blocks (```python etc.)
+2. execute_background_command(command): Start long-running processes
+   - Use for: servers, daemons, watch modes, blocking processes
+   - Examples: "python3 -m http.server 8000", "npm run dev"
 
-4. <DONE>optional message</DONE> - Indicates you've completed the task
-   Example: <DONE>Firefox has been successfully installed and configured</DONE>
+3. write_file(filename, content): Create/write files
+   - Use for: creating configuration files, scripts, code
+   - You have root access - can write anywhere
+   - DO NOT use markdown code blocks in content
 
 WORKFLOW:
-- ALWAYS use tags to perform actions - never just show code or instructions
-- Use <COMMAND>cmd</COMMAND> to execute commands and see their output
-- Use <COMMAND_BACKGROUND> for servers, daemons, watch modes, or any blocking process
-- Use <WRITEFILE> instead of nano/vim for creating files - DO NOT just show code blocks
-- After commands, you'll receive the output and can continue
-- If a command FAILS, analyze the error and try to fix it before giving up
-- End with <DONE> when your task is complete
+- Use tools to perform all actions
+- After each tool call, analyze the result before proceeding
+- If a command fails, read the error and try to fix it
+- Chain tool calls as needed to complete complex tasks
+- Provide clear explanations of what you're doing
+- **IMPORTANT: When you're done, respond WITHOUT making any more tool calls**
+
+WHEN TO STOP MAKING TOOL CALLS:
+- ✅ User's question has been fully answered
+- ✅ User is just chatting casually (hello, thanks, etc.) - respond conversationally WITHOUT tools
+- ✅ Task is complete and verified
+- ✅ You have all the information needed to answer
+- ✅ Files have been successfully created
+- ✅ Commands executed successfully and you've confirmed it worked
+- ❌ DON'T keep exploring or running commands "just to check" unless specifically asked
+- ❌ DON'T run informational commands (ls, cat, file, etc.) unless user asks for that info
+
+**TO STOP: Simply respond with text ONLY, without calling any tools. The conversation will end naturally.**
 
 ERROR HANDLING:
-- ALWAYS check command outputs for errors
-- If a command fails, read the error message carefully
-- Try alternative approaches or fix the issue before continuing
-- Don't ignore failed commands - they need to be resolved
-
-CAPABILITIES:
-- Execute shell commands and see their output
-- Run background processes (servers, daemons)
-- Read/write files 
-- Monitor system resources
-- Install packages with pacman but with --noconfirm
-- Similarly avoid any interactive prompts
-- Manage services with systemctl
-- Network operations
-- Create system services, files, interact with the system etc.
-
-SAFETY RULES:
-- Be careful with sudo commands
-- Don't delete anything important
-- If you do not need to read any input always have a <DONE> tag
-- Do NOT use markdown code blocks (```python) inside WRITEFILE tags
+- ALWAYS check tool call results for errors
+- If a command fails, analyze the error message
+- Try alternative approaches before giving up
+- Explain what went wrong and what you're trying next
 
 RESPONSE GUIDELINES:
-- Do not tell the user how to do something, just do it
-- ALWAYS use tags when creating files or running commands - never just show code
-- When you need to write to a use <WRITEFILE> to actually create it
-- When asked to run something, use <COMMAND> to actually execute it
-- Make your responses clear and concise
-- You can iterate and see command outputs to complete complex tasks
-- MUST analyze errors and retry/fix failed commands
-- If you do not need to read any input always have a <DONE> tag
+- Do not just explain what to do - use tools to actually do it
+- Be concise but informative
+- Use tools whenever possible instead of showing code
+- Explain your reasoning when making decisions
+- Always use --noconfirm (or equivalent) for interactive commands
+- Never use sudo (you're already root)
+
+IMPORTANT: Use function calls to perform actions, not text instructions!
 """
 
     def _get_system_info(self) -> str:
@@ -170,61 +234,100 @@ RESPONSE GUIDELINES:
                 "return_code": -1
             }
 
-    def extract_commands_and_tags(self, text: str) -> dict:
-        """Extract commands and special tags from AI response in order"""
-        all_tags = []
+    def estimate_tokens(self, text: str) -> int:
+        """Rough token estimation (1 token ≈ 4 characters)"""
+        return len(text) // 4
+    
+    def get_conversation_tokens(self) -> int:
+        """Estimate total tokens in conversation history"""
+        total = self.estimate_tokens(self.system_prompt)
+        for msg in self.conversation_history:
+            if isinstance(msg.get("content"), str):
+                total += self.estimate_tokens(msg["content"])
+            if "tool_calls" in msg:
+                total += len(msg["tool_calls"]) * 100  # Rough estimate for tool calls
+        return total
+    
+    def summarize_context(self):
+        """Summarize old conversation when approaching token limit"""
+        if len(self.conversation_history) < 6:
+            return  # Need some history to summarize
         
-        # Extract COMMAND_BACKGROUND tags (check this first to avoid conflicts)
-        bg_command_pattern = r'<COMMAND_BACKGROUND>(.*?)</COMMAND_BACKGROUND>'
-        for match in re.finditer(bg_command_pattern, text, re.DOTALL | re.IGNORECASE):
-            cmd = match.group(1).strip()
-            if cmd:
-                all_tags.append((match.start(), 'command_background', cmd))
+        logger.info("Summarizing conversation context...")
         
-        # Extract regular COMMAND tags
-        command_pattern = r'<COMMAND>(.*?)</COMMAND>'
-        for match in re.finditer(command_pattern, text, re.DOTALL | re.IGNORECASE):
-            # Skip if this is part of COMMAND_BACKGROUND
-            if '<COMMAND_BACKGROUND>' not in text[max(0, match.start()-20):match.start()]:
-                cmd = match.group(1).strip()
-                if cmd:
-                    all_tags.append((match.start(), 'command', cmd))
+        # Keep first user message and last 4 messages, summarize the middle
+        first_msg = self.conversation_history[0]
+        recent_msgs = self.conversation_history[-4:]
+        to_summarize = self.conversation_history[1:-4]
         
-        # Extract WRITEFILE tags
-        writefile_pattern = r'<WRITEFILE\s+filename="([^"]+)">(.*?)</WRITEFILE>'
-        for match in re.finditer(writefile_pattern, text, re.DOTALL | re.IGNORECASE):
-            filename = match.group(1).strip()
-            content = match.group(2).strip()
-            if filename:
-                all_tags.append((match.start(), 'writefile', (filename, content)))
+        if not to_summarize:
+            return
         
-        # Check for DONE tag
-        done_pattern = r'<DONE>(.*?)</DONE>'
-        done_messages = re.findall(done_pattern, text, re.DOTALL | re.IGNORECASE)
+        # Build summary prompt
+        conversation_text = "\n".join([
+            f"{msg['role']}: {msg.get('content', '[tool call]')}"
+            for msg in to_summarize
+        ])
         
-        # Sort tags by position
-        all_tags.sort(key=lambda x: x[0])
-        
-        return {
-            "ordered_tags": all_tags,
-            "done_messages": [msg.strip() for msg in done_messages if msg.strip()],
-            "is_done": len(done_messages) > 0
-        }
+        summary_prompt = f"""Summarize this conversation concisely, focusing on:
+1. What tasks were completed
+2. Any important system changes made
+3. Current state of the system
+4. Any errors encountered and how they were resolved
 
-    def query_llm(self, prompt: str) -> str:
-        """Query the LM Studio API"""
+Conversation to summarize:
+{conversation_text}
+
+Provide a brief summary (2-3 sentences):"""
+        
         try:
+            response = self.session.post(
+                f"{self.lm_studio_url}/v1/chat/completions",
+                json={
+                    "model": MODEL_NAME,
+                    "messages": [{"role": "user", "content": summary_prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 200
+                }
+            )
+            
+            if response.status_code == 200:
+                summary = response.json()["choices"][0]["message"]["content"]
+                
+                # Replace middle conversation with summary
+                self.conversation_history = [
+                    first_msg,
+                    {"role": "system", "content": f"[Previous conversation summary: {summary}]"},
+                    *recent_msgs
+                ]
+                logger.info(f"Context summarized. New length: {len(self.conversation_history)} messages")
+        except Exception as e:
+            logger.error(f"Failed to summarize context: {e}")
+    
+    def query_llm(self, prompt: str, use_tools: bool = True) -> dict:
+        """Query LM Studio API with tool calling support"""
+        try:
+            # Check if we need to summarize
+            current_tokens = self.get_conversation_tokens()
+            if current_tokens > TARGET_CONTEXT_TOKENS:
+                self.summarize_context()
+            
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                *self.conversation_history,
+                {"role": "user", "content": prompt}
+            ]
+            
             payload = {
                 "model": MODEL_NAME,
-                "messages": [
-                    {"role": "system", "content": self.system_prompt},
-                    *self.conversation_history,
-                    {"role": "user", "content": prompt}
-                ],
+                "messages": messages,
                 "temperature": 0.7,
-                "max_tokens": 8192,
+                "max_tokens": 4096,
                 "stream": False
             }
+            
+            if use_tools:
+                payload["tools"] = self.tools
             
             response = self.session.post(
                 f"{self.lm_studio_url}/v1/chat/completions",
@@ -234,81 +337,49 @@ RESPONSE GUIDELINES:
             
             if response.status_code == 200:
                 result = response.json()
-                ai_response = result["choices"][0]["message"]["content"]
+                message = result["choices"][0]["message"]
                 
-                # Store conversation
+                # Store user message
                 self.conversation_history.append({"role": "user", "content": prompt})
-                self.conversation_history.append({"role": "assistant", "content": ai_response})
                 
-                # Keep conversation history manageable
-                if len(self.conversation_history) > 20:
-                    self.conversation_history = self.conversation_history[-20:]
+                # Store assistant response
+                if message.get("tool_calls"):
+                    self.conversation_history.append({
+                        "role": "assistant",
+                        "tool_calls": message["tool_calls"],
+                        "content": message.get("content") or ""
+                    })
+                else:
+                    self.conversation_history.append({
+                        "role": "assistant",
+                        "content": message.get("content", "")
+                    })
                 
-                return ai_response
+                return {
+                    "success": True,
+                    "message": message.get("content"),
+                    "tool_calls": message.get("tool_calls", []),
+                    "finish_reason": result["choices"][0].get("finish_reason")
+                }
             else:
-                return f"LM Studio API error: {response.status_code} - {response.text}"
+                return {
+                    "success": False,
+                    "error": f"LM Studio API error: {response.status_code} - {response.text}"
+                }
                 
         except requests.exceptions.RequestException as e:
-            return f"Connection error to LM Studio: {e}"
+            return {"success": False, "error": f"Connection error to LM Studio: {e}"}
         except Exception as e:
-            return f"Error querying LLM: {e}"
-
-    def process_request(self, user_input: str) -> dict:
-        """Process user request and return structured response"""
-        events = []
-        
-        def add_event(event_type: str, data: dict):
-            events.append({
-                "type": event_type,
-                "timestamp": datetime.now().isoformat(),
-                "data": data
-            })
-        
-        # Query AI
-        add_event("ai_thinking", {})
-        ai_response = self.query_llm(user_input)
-        add_event("ai_response", {"message": ai_response})
-        
-        # Process response iteratively
-        self._process_with_iteration(ai_response, add_event)
-        
-        return {"events": events}
-
-    def _process_with_iteration(self, ai_response: str, add_event):
-        """Process AI response with iteration"""
-        tags = self.extract_commands_and_tags(ai_response)
-        
-        # Execute all operations
-        commands_needing_feedback = []
-        has_errors = False
-        
-        for pos, tag_type, data in tags["ordered_tags"]:
-            if tag_type == 'command':
-                cmd = data
-                add_event("command_start", {"command": cmd})
-                
-                result = self.execute_command(cmd)
-                
-                add_event("command_result", {
-                    "command": cmd,
-                    "success": result["success"],
-                    "output": result["output"],
-                    "error": result["error"],
-                    "return_code": result["return_code"]
-                })
-                
-                # Collect output for AI feedback
-                formatted_output = self._format_command_result(cmd, result)
-                commands_needing_feedback.append(formatted_output)
-                
-                if not result["success"]:
-                    has_errors = True
+            return {"success": False, "error": f"Error querying LLM: {e}"}
+    
+    def execute_tool(self, tool_name: str, arguments: dict) -> dict:
+        """Execute a tool call"""
+        try:
+            if tool_name == "execute_command":
+                return self.execute_command(arguments["command"])
             
-            elif tag_type == 'command_background':
-                cmd = data
-                add_event("background_command_start", {"command": cmd})
-                
-                # Start background process
+            elif tool_name == "execute_background_command":
+                cmd = arguments["command"]
                 try:
                     process = subprocess.Popen(
                         cmd,
@@ -317,119 +388,68 @@ RESPONSE GUIDELINES:
                         stderr=subprocess.PIPE,
                         text=True
                     )
-                    add_event("background_command_started", {
-                        "command": cmd,
+                    return {
+                        "success": True,
+                        "output": f"Background process started with PID {process.pid}",
                         "pid": process.pid,
-                        "message": f"Background process started with PID {process.pid}"
-                    })
-                    commands_needing_feedback.append(
-                        f"Background Command: {cmd}\nStatus: Started successfully with PID {process.pid}"
-                    )
+                        "return_code": 0
+                    }
                 except Exception as e:
-                    add_event("background_command_error", {
-                        "command": cmd,
-                        "error": str(e)
-                    })
-                    commands_needing_feedback.append(
-                        f"Background Command: {cmd}\nError: {str(e)}"
-                    )
-                    has_errors = True
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "output": "",
+                        "return_code": -1
+                    }
             
-            elif tag_type == 'writefile':
-                filename, content = data
-                add_event("file_write_start", {"filename": filename})
+            elif tool_name == "write_file":
+                filename = arguments["filename"]
+                content = arguments["content"]
                 
-                try:
-                    # Clean content
-                    cleaned_content = content.strip()
-                    if cleaned_content.startswith('```python'):
-                        cleaned_content = cleaned_content[9:]
-                    if cleaned_content.startswith('```'):
-                        cleaned_content = cleaned_content[3:]
-                    if cleaned_content.endswith('```'):
-                        cleaned_content = cleaned_content[:-3]
-                    cleaned_content = cleaned_content.strip()
-                    
-                    # Check if content seems truncated
-                    is_truncated = (
-                        cleaned_content.endswith('...') or
-                        (filename.endswith('.html') and not cleaned_content.endswith('</html>')) or
-                        (filename.endswith('.py') and cleaned_content.count('def ') != cleaned_content.count('    return'))
-                    )
-                    
-                    # Create directory if needed
-                    dir_path = os.path.dirname(filename)
-                    if dir_path:
-                        os.makedirs(dir_path, exist_ok=True)
-                    
-                    with open(filename, 'w') as f:
-                        f.write(cleaned_content)
-                    
-                    if is_truncated:
-                        add_event("file_write_warning", {
-                            "filename": filename,
-                            "preview": cleaned_content[:200],
-                            "warning": "File content may be truncated"
-                        })
-                        commands_needing_feedback.append(
-                            f"File Written: {filename}\nStatus: SUCCESS but content appears TRUNCATED\n"
-                            f"⚠️ The file content may be incomplete. Consider writing smaller files or splitting content."
-                        )
-                        has_errors = True
-                    else:
-                        add_event("file_write_success", {
-                            "filename": filename,
-                            "preview": cleaned_content[:200]
-                        })
-                        commands_needing_feedback.append(
-                            f"File Written: {filename}\nStatus: Success\nSize: {len(cleaned_content)} bytes"
-                        )
-                except Exception as e:
-                    add_event("file_write_error", {
-                        "filename": filename,
-                        "error": str(e)
-                    })
-                    commands_needing_feedback.append(
-                        f"File Write: {filename}\nError: {str(e)}"
-                    )
-                    has_errors = True
-        
-        # Handle completion
-        if tags["is_done"]:
-            for msg in tags["done_messages"]:
-                if msg:
-                    add_event("task_complete", {"message": msg})
-            return
-        
-        # Continue iteration if needed
-        if commands_needing_feedback:
-            # Emphasize errors if any occurred
-            if has_errors:
-                feedback_prompt = (
-                    "⚠️ ATTENTION: Some commands/operations FAILED. You MUST fix these errors before proceeding.\n\n"
-                    "Results:\n\n" +
-                    "\n\n---\n\n".join(commands_needing_feedback) +
-                    "\n\n🔴 CRITICAL: Analyze the errors above and fix them. Do not ignore failed commands!\n"
-                    "Use <COMMAND> to retry or fix issues, or use <DONE>message</DONE> if the task cannot be completed."
-                )
+                # Clean content (remove markdown code blocks if present)
+                cleaned_content = content.strip()
+                if cleaned_content.startswith('```'):
+                    lines = cleaned_content.split('\n')
+                    if lines[0].startswith('```'):
+                        lines = lines[1:]
+                    if lines and lines[-1].strip() == '```':
+                        lines = lines[:-1]
+                    cleaned_content = '\n'.join(lines)
+                
+                # Create directory if needed
+                dir_path = os.path.dirname(filename)
+                if dir_path:
+                    os.makedirs(dir_path, exist_ok=True)
+                
+                with open(filename, 'w') as f:
+                    f.write(cleaned_content)
+                
+                return {
+                    "success": True,
+                    "output": f"File written: {filename} ({len(cleaned_content)} bytes)",
+                    "filename": filename,
+                    "size": len(cleaned_content),
+                    "return_code": 0
+                }
+            
             else:
-                feedback_prompt = (
-                    "All operations completed successfully. Results:\n\n" +
-                    "\n\n---\n\n".join(commands_needing_feedback) +
-                    "\n\nPlease continue with your task or use <DONE>message</DONE> when finished."
-                )
-            
-            add_event("ai_thinking", {})
-            next_response = self.query_llm(feedback_prompt)
-            add_event("ai_response", {"message": next_response})
-            
-            # Recursive iteration
-            self._process_with_iteration(next_response, add_event)
+                return {
+                    "success": False,
+                    "error": f"Unknown tool: {tool_name}",
+                    "return_code": -1
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "return_code": -1
+            }
 
-    def _process_with_iteration_streaming(self, ai_response: str):
-        """Generator that processes AI response and yields SSE events"""
-        def add_event(event_type: str, data: dict):
-            """Helper to format and yield SSE events"""
+    def process_request_streaming(self, user_input: str):
+        """Generator that processes request with tool calling and yields SSE events"""
+        def yield_event(event_type: str, data: dict):
+            """Yield SSE formatted event"""
             event = {
                 "type": event_type,
                 "timestamp": datetime.now().isoformat(),
@@ -437,183 +457,104 @@ RESPONSE GUIDELINES:
             }
             return f"data: {json.dumps(event)}\n\n"
         
-        # Process the response with iteration
-        yield from self._process_iteration_generator(ai_response, add_event)
-    
-    def _process_iteration_generator(self, ai_response: str, add_event):
-        """Generator version of _process_with_iteration"""
         # Check if stop was requested
         if self.stop_requested:
-            yield add_event("task_stopped", {"message": "Processing stopped by user"})
+            yield yield_event("task_stopped", {"message": "Processing stopped by user"})
             self.stop_requested = False
             return
         
-        tags = self.extract_commands_and_tags(ai_response)
+        # Initial AI query
+        yield yield_event("ai_thinking", {})
+        response = self.query_llm(user_input, use_tools=True)
         
-        # Execute all operations
-        commands_needing_feedback = []
-        has_errors = False
-        
-        for pos, tag_type, data in tags["ordered_tags"]:
-            if tag_type == 'command':
-                cmd = data
-                yield add_event("command_start", {"command": cmd})
-                
-                result = self.execute_command(cmd)
-                
-                yield add_event("command_result", {
-                    "command": cmd,
-                    "success": result["success"],
-                    "output": result["output"],
-                    "error": result["error"],
-                    "return_code": result["return_code"]
-                })
-                
-                # Collect output for AI feedback
-                formatted_output = self._format_command_result(cmd, result)
-                commands_needing_feedback.append(formatted_output)
-                
-                if not result["success"]:
-                    has_errors = True
-            
-            elif tag_type == 'command_background':
-                cmd = data
-                yield add_event("background_command_start", {"command": cmd})
-                
-                # Start background process
-                try:
-                    process = subprocess.Popen(
-                        cmd,
-                        shell=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True
-                    )
-                    yield add_event("background_command_started", {
-                        "command": cmd,
-                        "pid": process.pid,
-                        "message": f"Background process started with PID {process.pid}"
-                    })
-                    commands_needing_feedback.append(
-                        f"Background Command: {cmd}\nStatus: Started successfully with PID {process.pid}"
-                    )
-                except Exception as e:
-                    yield add_event("background_command_error", {
-                        "command": cmd,
-                        "error": str(e)
-                    })
-                    commands_needing_feedback.append(
-                        f"Background Command: {cmd}\nError: {str(e)}"
-                    )
-                    has_errors = True
-            
-            elif tag_type == 'writefile':
-                filename, content = data
-                yield add_event("file_write_start", {"filename": filename})
-                
-                try:
-                    # Clean content
-                    cleaned_content = content.strip()
-                    if cleaned_content.startswith('```python'):
-                        cleaned_content = cleaned_content[9:]
-                    if cleaned_content.startswith('```'):
-                        cleaned_content = cleaned_content[3:]
-                    if cleaned_content.endswith('```'):
-                        cleaned_content = cleaned_content[:-3]
-                    cleaned_content = cleaned_content.strip()
-                    
-                    # Check if content seems truncated
-                    is_truncated = (
-                        cleaned_content.endswith('...') or
-                        (filename.endswith('.html') and not cleaned_content.endswith('</html>')) or
-                        (filename.endswith('.py') and cleaned_content.count('def ') != cleaned_content.count('    return'))
-                    )
-                    
-                    # Create directory if needed
-                    dir_path = os.path.dirname(filename)
-                    if dir_path:
-                        os.makedirs(dir_path, exist_ok=True)
-                    
-                    with open(filename, 'w') as f:
-                        f.write(cleaned_content)
-                    
-                    if is_truncated:
-                        yield add_event("file_write_warning", {
-                            "filename": filename,
-                            "preview": cleaned_content[:200],
-                            "warning": "File content may be truncated"
-                        })
-                        commands_needing_feedback.append(
-                            f"File Written: {filename}\nStatus: SUCCESS but content appears TRUNCATED\n"
-                            f"⚠️ The file content may be incomplete. Consider writing smaller files or splitting content."
-                        )
-                        has_errors = True
-                    else:
-                        yield add_event("file_write_success", {
-                            "filename": filename,
-                            "preview": cleaned_content[:200]
-                        })
-                        commands_needing_feedback.append(
-                            f"File Written: {filename}\nStatus: Success\nSize: {len(cleaned_content)} bytes"
-                        )
-                except Exception as e:
-                    yield add_event("file_write_error", {
-                        "filename": filename,
-                        "error": str(e)
-                    })
-                    commands_needing_feedback.append(
-                        f"File Write: {filename}\nError: {str(e)}"
-                    )
-                    has_errors = True
-        
-        # Handle completion
-        if tags["is_done"]:
-            for msg in tags["done_messages"]:
-                if msg:
-                    yield add_event("task_complete", {"message": msg})
+        if not response["success"]:
+            yield yield_event("error", {"message": response.get("error", "Unknown error")})
             return
         
-        # Continue iteration if needed
-        if commands_needing_feedback:
-            # Emphasize errors if any occurred
-            if has_errors:
-                feedback_prompt = (
-                    "⚠️ ATTENTION: Some commands/operations FAILED. You MUST fix these errors before proceeding.\n\n"
-                    "Results:\n\n" +
-                    "\n\n---\n\n".join(commands_needing_feedback) +
-                    "\n\n🔴 CRITICAL: Analyze the errors above and fix them. Do not ignore failed commands!\n"
-                    "Use <COMMAND> to retry or fix issues, or use <DONE>message</DONE> if the task cannot be completed."
-                )
-            else:
-                feedback_prompt = (
-                    "All operations completed successfully. Results:\n\n" +
-                    "\n\n---\n\n".join(commands_needing_feedback) +
-                    "\n\nPlease continue with your task or use <DONE>message</DONE> when finished."
-                )
-            
-            yield add_event("ai_thinking", {})
-            next_response = self.query_llm(feedback_prompt)
-            yield add_event("ai_response", {"message": next_response})
-            
-            # Recursive iteration
-            yield from self._process_iteration_generator(next_response, add_event)
-
-    def _format_command_result(self, command: str, result: dict) -> str:
-        """Format command result for AI feedback"""
-        output_parts = [f"Command: {command}"]
+        if response["message"]:
+            yield yield_event("ai_response", {"message": response["message"]})
         
-        if result["success"]:
-            if result["output"].strip():
-                output_parts.append(f"Output:\n{result['output']}")
-            else:
-                output_parts.append("Command completed successfully (no output)")
-        else:
-            output_parts.append(f"Error: {result['error']}")
-            if result["output"]:
-                output_parts.append(f"Additional output: {result['output']}")
+        # Process tool calls iteratively - LLM decides when to stop
+        iteration = 0
         
-        output_parts.append(f"Return code: {result['return_code']}")
-        return "\n".join(output_parts)
+        while response.get("tool_calls"):
+            iteration += 1
+            
+            # Check stop again
+            if self.stop_requested:
+                yield yield_event("task_stopped", {"message": "Processing stopped by user"})
+                self.stop_requested = False
+                return
+            
+            for tool_call in response["tool_calls"]:
+                tool_name = tool_call["function"]["name"]
+                try:
+                    arguments = json.loads(tool_call["function"]["arguments"])
+                except json.JSONDecodeError:
+                    yield yield_event("error", {"message": f"Invalid tool arguments: {tool_call['function']['arguments']}"})
+                    continue
+                
+                # Emit tool start event
+                if tool_name == "execute_command":
+                    yield yield_event("command_start", {"command": arguments["command"]})
+                elif tool_name == "execute_background_command":
+                    yield yield_event("background_command_start", {"command": arguments["command"]})
+                elif tool_name == "write_file":
+                    yield yield_event("file_write_start", {"filename": arguments["filename"]})
+                
+                # Execute tool
+                result = self.execute_tool(tool_name, arguments)
+                
+                # Emit result event
+                if tool_name == "execute_command":
+                    yield yield_event("command_result", {
+                        "command": arguments["command"],
+                        "success": result["success"],
+                        "output": result.get("output", ""),
+                        "error": result.get("error", ""),
+                        "return_code": result.get("return_code", 0)
+                    })
+                elif tool_name == "execute_background_command":
+                    if result["success"]:
+                        yield yield_event("background_command_started", {
+                            "command": arguments["command"],
+                            "pid": result.get("pid"),
+                            "message": result["output"]
+                        })
+                    else:
+                        yield yield_event("background_command_error", {
+                            "command": arguments["command"],
+                            "error": result["error"]
+                        })
+                elif tool_name == "write_file":
+                    if result["success"]:
+                        yield yield_event("file_write_success", {
+                            "filename": arguments["filename"],
+                            "content": arguments["content"]  # Full content, not just preview
+                        })
+                    else:
+                        yield yield_event("file_write_error", {
+                            "filename": arguments["filename"],
+                            "error": result["error"]
+                        })
+                
+                # Add tool result to conversation
+                self.conversation_history.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": json.dumps(result)
+                })
+            
+            # Get next AI response
+            yield yield_event("ai_thinking", {})
+            response = self.query_llm("", use_tools=True)
+            
+            if response.get("message"):
+                yield yield_event("ai_response", {"message": response["message"]})
+            
+            if not response.get("tool_calls"):
+                yield yield_event("task_complete", {"message": "Task completed"})
+                break
 
     def get_system_status(self) -> dict:
         """Get current system status"""
@@ -665,15 +606,8 @@ def chat():
     def generate_events():
         """Generator function for SSE"""
         try:
-            # AI thinking
-            yield f"data: {json.dumps({'type': 'ai_thinking', 'timestamp': datetime.now().isoformat(), 'data': {}})}\n\n"
-            
-            # Query AI
-            ai_response = agent.query_llm(user_message)
-            yield f"data: {json.dumps({'type': 'ai_response', 'timestamp': datetime.now().isoformat(), 'data': {'message': ai_response}})}\n\n"
-            
-            # Process response iteratively - yield from the generator
-            for event in agent._process_with_iteration_streaming(ai_response):
+            # Process request with streaming - this handles everything
+            for event in agent.process_request_streaming(user_message):
                 yield event
             
             # Send end marker
@@ -683,22 +617,6 @@ def chat():
             yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
     
     return Response(generate_events(), mimetype='text/event-stream')
-
-@app.route('/api/chat-legacy', methods=['POST'])
-def chat_legacy():
-    """Legacy non-streaming endpoint"""
-    data = request.json
-    user_message = data.get('message', '').strip()
-    
-    if not user_message:
-        return jsonify({"error": "Empty message"}), 400
-    
-    try:
-        result = agent.process_request(user_message)
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Error processing chat: {e}")
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/clear', methods=['POST'])
 def clear():

@@ -781,7 +781,7 @@
                     fileDiv.className = 'file-write';
                     fileDiv.innerHTML = `
                         <div class="file-header">✅ File written: ${escapeHtml(event.data.filename)}</div>
-                        <div class="command-output">${escapeHtml(event.data.preview)}${event.data.preview.length >= 200 ? '...' : ''}</div>
+                        <pre class="command-output">${escapeHtml(event.data.content)}</pre>
                     `;
                     chatContainer.appendChild(fileDiv);
                     scrollToBottom();
@@ -799,7 +799,7 @@
                     fileWarnDiv.innerHTML = `
                         <div class="file-header">⚠️ File written (with warning): ${escapeHtml(event.data.filename)}</div>
                         <div class="command-output" style="color: #fcd34d;">${escapeHtml(event.data.warning)}</div>
-                        <div class="command-output">${escapeHtml(event.data.preview)}${event.data.preview.length >= 200 ? '...' : ''}</div>
+                        <pre class="command-output">${escapeHtml(event.data.content || event.data.preview)}</pre>
                     `;
                     chatContainer.appendChild(fileWarnDiv);
                     scrollToBottom();
