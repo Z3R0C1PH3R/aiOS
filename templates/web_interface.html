@@ -533,6 +533,47 @@
             border-top: 1px solid rgba(100, 116, 139, 0.3);
             display: flex;
             gap: 16px;
+            position: relative;
+        }
+
+        .input-status-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #1e293b;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            font-size: 16px;
+            color: #e2e8f0;
+            z-index: 10;
+        }
+
+        .input-status-overlay.active {
+            display: flex;
+        }
+
+        .input-status-overlay .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(102, 126, 234, 0.3);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .task-stats {
+            font-size: 13px;
+            color: #64748b;
+            margin-top: 8px;
+            padding-left: 4px;
         }
 
         .input-wrapper {
@@ -734,6 +775,10 @@
         </div>
 
         <div class="input-container">
+            <div class="input-status-overlay" id="inputStatusOverlay">
+                <div class="spinner"></div>
+                <span id="inputStatusText">AI is thinking...</span>
+            </div>
             <div class="input-wrapper">
                 <textarea 
                     id="userInput" 
@@ -860,6 +905,36 @@
             if (thinking) thinking.remove();
         }
 
+        // Input status overlay functions
+        function showInputStatus(text) {
+            const overlay = document.getElementById('inputStatusOverlay');
+            const statusText = document.getElementById('inputStatusText');
+            statusText.textContent = text;
+            overlay.classList.add('active');
+        }
+
+        function hideInputStatus() {
+            const overlay = document.getElementById('inputStatusOverlay');
+            overlay.classList.remove('active');
+        }
+
+        // Add task stats below the last AI message
+        function addTaskStats(tokens, messages) {
+            if (tokens <= 0) return;
+            
+            const lastAIMessage = chatContainer.querySelector('.ai-message:last-of-type');
+            if (!lastAIMessage) return;
+            
+            // Remove any existing stats
+            const existingStats = lastAIMessage.querySelector('.task-stats');
+            if (existingStats) existingStats.remove();
+            
+            const statsDiv = document.createElement('div');
+            statsDiv.className = 'task-stats';
+            statsDiv.textContent = `${tokens.toLocaleString()} tokens • ${messages} messages`;
+            lastAIMessage.appendChild(statsDiv);
+        }
+
         // Add progress indicator
         function addProgressIndicator(id, icon, text, type = '') {
             removeProgressIndicator(id); // Remove if exists
@@ -925,26 +1000,15 @@
 
             switch(event.type) {
                 case 'ai_thinking':
-                    if (!currentProgressIds.thinking) {
-                        currentProgressIds.thinking = `thinking-${++eventCounter}`;
-                        addProgressIndicator(
-                            currentProgressIds.thinking,
-                            '🤔',
-                            'AI is analyzing...',
-                            'thinking'
-                        );
-                    }
+                    showInputStatus('🤔 AI is analyzing...');
                     // Reset current message element and markdown for new streaming
                     currentAIMessageElement = null;
                     currentAIMarkdown = '';
                     break;
                 
                 case 'ai_response_chunk':
-                    // Remove thinking indicator on first chunk
-                    if (currentProgressIds.thinking) {
-                        removeProgressIndicator(currentProgressIds.thinking);
-                        currentProgressIds.thinking = null;
-                    }
+                    // Hide input status on first chunk
+                    hideInputStatus();
                     
                     // Create or update AI message element
                     if (!currentAIMessageElement) {
@@ -1023,20 +1087,11 @@
                     break;
                 
                 case 'command_start':
-                    currentProgressIds.command = `cmd-${++eventCounter}`;
-                    addProgressIndicator(
-                        currentProgressIds.command,
-                        '⚙️',
-                        `Executing: ${event.data.command}`,
-                        'executing'
-                    );
+                    showInputStatus(`⚙️ Executing: ${event.data.command.substring(0, 50)}${event.data.command.length > 50 ? '...' : ''}`);
                     break;
                     
                 case 'command_result':
-                    if (currentProgressIds.command) {
-                        removeProgressIndicator(currentProgressIds.command);
-                        currentProgressIds.command = null;
-                    }
+                    hideInputStatus();
                     
                     const cmdDiv = document.createElement('div');
                     cmdDiv.className = 'command-execution';
@@ -1057,13 +1112,7 @@
                     break;
                 
                 case 'background_command_start':
-                    currentProgressIds.bg = `bg-${++eventCounter}`;
-                    addProgressIndicator(
-                        currentProgressIds.bg,
-                        '🔄',
-                        `Starting background process: ${event.data.command}`,
-                        'executing'
-                    );
+                    showInputStatus(`🔄 Starting background: ${event.data.command.substring(0, 40)}${event.data.command.length > 40 ? '...' : ''}`);
                     break;
                 
                 case 'background_command_started':
@@ -1107,20 +1156,11 @@
                     break;
                 
                 case 'file_write_start':
-                    currentProgressIds.file = `file-${++eventCounter}`;
-                    addProgressIndicator(
-                        currentProgressIds.file,
-                        '📝',
-                        `Writing file: ${event.data.filename}`,
-                        'executing'
-                    );
+                    showInputStatus(`📝 Writing: ${event.data.filename}`);
                     break;
                 
                 case 'file_write_success':
-                    if (currentProgressIds.file) {
-                        removeProgressIndicator(currentProgressIds.file);
-                        currentProgressIds.file = null;
-                    }
+                    hideInputStatus();
                     
                     const fileDiv = document.createElement('div');
                     fileDiv.className = 'file-write';
@@ -1149,20 +1189,11 @@
                     break;
                 
                 case 'file_read_start':
-                    currentProgressIds.file = `file-read-${++eventCounter}`;
-                    addProgressIndicator(
-                        currentProgressIds.file,
-                        '📖',
-                        `Reading: ${event.data.filename}`,
-                        'executing'
-                    );
+                    showInputStatus(`📖 Reading: ${event.data.filename}`);
                     break;
                 
                 case 'file_read_success':
-                    if (currentProgressIds.file) {
-                        removeProgressIndicator(currentProgressIds.file);
-                        currentProgressIds.file = null;
-                    }
+                    hideInputStatus();
                     
                     const fileReadDiv = document.createElement('div');
                     fileReadDiv.className = 'file-write';
@@ -1184,10 +1215,7 @@
                     break;
                 
                 case 'file_read_error':
-                    if (currentProgressIds.file) {
-                        removeProgressIndicator(currentProgressIds.file);
-                        currentProgressIds.file = null;
-                    }
+                    hideInputStatus();
                     
                     const fileReadErrDiv = document.createElement('div');
                     fileReadErrDiv.className = 'file-write';
@@ -1468,28 +1496,9 @@
                     break;
                 
                 case 'tool_calls_planned':
-                    // Transform tool call planning indicators to "planned" state before execution
-                    if (currentProgressIds.toolCall) {
-                        for (const idx in currentProgressIds.toolCall) {
-                            const progressId = currentProgressIds.toolCall[idx];
-                            const progressItem = document.getElementById(`progress-${progressId}`);
-                            if (progressItem) {
-                                // Change appearance to "planned" state (faded with green border)
-                                progressItem.style.opacity = '0.7';
-                                progressItem.style.borderLeftColor = '#10b981';
-                            }
-                        }
-                    }
-                    
-                    const toolCallsDiv = document.createElement('div');
-                    toolCallsDiv.className = 'tool-calls-info';
-                    const toolsList = event.data.tools.map(tool => `<code style="background: rgba(251, 191, 36, 0.1); padding: 2px 6px; border-radius: 4px; font-size: 13px;">${escapeHtml(tool)}</code>`).join(' ');
-                    toolCallsDiv.innerHTML = `
-                        <span>🔧 Executing ${event.data.count} tool call${event.data.count !== 1 ? 's' : ''}</span>
-                        <span style="margin-left: 8px;">${toolsList}</span>
-                    `;
-                    chatContainer.appendChild(toolCallsDiv);
-                    scrollToBottom();
+                    // Show tool execution status in input overlay
+                    const toolsList = event.data.tools.join(', ');
+                    showInputStatus(`🔧 Executing ${event.data.count} tool${event.data.count !== 1 ? 's' : ''}: ${toolsList.substring(0, 40)}${toolsList.length > 40 ? '...' : ''}`);
                     
                     // Keep planning indicators visible for 1 second, then remove them
                     setTimeout(() => {
@@ -1503,25 +1512,13 @@
                     break;
                 
                 case 'context_summarized':
-                    const summaryDiv = document.createElement('div');
-                    summaryDiv.className = 'task-complete';
-                    summaryDiv.style.background = 'rgba(124, 58, 237, 0.1)';
-                    summaryDiv.style.borderLeft = '3px solid #7c3aed';
-                    summaryDiv.innerHTML = `
-                        <span style="font-size: 20px;">🔄</span>
-                        <span>Context summarized</span>
-                        <span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${event.data.messages_summarized} messages compressed • ${event.data.tokens_saved.toLocaleString()} tokens saved</span>
-                    `;
-                    chatContainer.appendChild(summaryDiv);
-                    scrollToBottom();
+                    // Show a brief notification in input overlay
+                    showInputStatus(`🔄 Context summarized (${event.data.messages_summarized} messages, ${event.data.tokens_saved.toLocaleString()} tokens saved)`);
+                    setTimeout(() => hideInputStatus(), 2000);
                     break;
                 
                 case 'task_complete':
-                    // Remove thinking indicator if still showing
-                    if (currentProgressIds.thinking) {
-                        removeProgressIndicator(currentProgressIds.thinking);
-                        currentProgressIds.thinking = null;
-                    }
+                    hideInputStatus();
                     
                     // Use tokens from event data if available, otherwise use accumulated tokens
                     const tokensToDisplay = event.data.total_tokens ? {
@@ -1530,15 +1527,8 @@
                         completion: event.data.completion_tokens
                     } : currentTaskTokens;
                     
-                    const completeDiv = document.createElement('div');
-                    completeDiv.className = 'task-complete';
-                    completeDiv.innerHTML = `
-                        <span style="font-size: 24px;">✅</span>
-                        <span>${escapeHtml(event.data.message || 'Task completed successfully!')}</span>
-                        ${tokensToDisplay.total > 0 ? `<span style="opacity: 0.7; font-size: 14px; margin-left: 12px;">• ${tokensToDisplay.total.toLocaleString()} tokens • ${currentContextInfo ? currentContextInfo.conversation_messages || 0 : 0} messages</span>` : ''}
-                    `;
-                    chatContainer.appendChild(completeDiv);
-
+                    // Add stats below the last AI message
+                    addTaskStats(tokensToDisplay.total, currentContextInfo ? currentContextInfo.conversation_messages || 0 : 0);
                     
                     // Reset token tracking for next task
                     currentTaskTokens = { prompt: 0, completion: 0, total: 0 };
@@ -1548,20 +1538,14 @@
                     break;
                 
                 case 'task_stopped':
-                    // Remove thinking indicator if still showing
-                    if (currentProgressIds.thinking) {
-                        removeProgressIndicator(currentProgressIds.thinking);
-                        currentProgressIds.thinking = null;
-                    }
+                    hideInputStatus();
                     
+                    // Show brief stopped message in chat
                     const stoppedDiv = document.createElement('div');
-                    stoppedDiv.className = 'task-complete';
-                    stoppedDiv.style.background = 'rgba(245, 158, 11, 0.1)';
-                    stoppedDiv.style.borderLeft = '3px solid #f59e0b';
-                    stoppedDiv.innerHTML = `
-                        <span style="font-size: 24px;">⏹️</span>
-                        <span>${escapeHtml(event.data.message || 'Processing stopped by user')}</span>
-                    `;
+                    stoppedDiv.className = 'task-stats';
+                    stoppedDiv.style.color = '#f59e0b';
+                    stoppedDiv.style.marginTop = '8px';
+                    stoppedDiv.innerHTML = `⏹️ ${escapeHtml(event.data.message || 'Processing stopped by user')}`;
                     chatContainer.appendChild(stoppedDiv);
                     
                     // Reset token tracking
