@@ -5,7 +5,6 @@
 **An autonomous AI agent with full OS-level access, powered by local LLMs**
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![LM Studio](https://img.shields.io/badge/LM%20Studio-Compatible-purple.svg)](https://lmstudio.ai)
 
 </div>
@@ -255,12 +254,6 @@ Contributions welcome!
 3. Commit changes: `git commit -m 'Add amazing feature'`
 4. Push: `git push origin feature/amazing-feature`
 5. Open Pull Request
-
----
-
-## 📜 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
